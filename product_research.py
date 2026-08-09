@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup, Tag
 
 from product import (
+    ClaimEvidence,
     Product,
     ProductFeature,
     ProductSource,
@@ -671,6 +672,7 @@ def _build_spec(
     source_url: str,
     confidence: float,
     unit: Any = None,
+    evidence: Optional[ClaimEvidence] = None,
 ) -> Optional[ProductSpec]:
     clean_label = _clean_text(label)
     if not clean_label:
@@ -688,7 +690,31 @@ def _build_spec(
         source_url=source_url,
         confidence=confidence,
         verified=False,
+        evidence=evidence,
     )
+
+
+def _evidence_value_text(value: Any) -> Optional[str]:
+    text = _clean_text(value)
+    if text:
+        return text
+    if value is None:
+        return None
+    try:
+        return _clean_text(json.dumps(value, ensure_ascii=False, sort_keys=True))
+    except (TypeError, ValueError):
+        return _clean_text(str(value))
+
+
+def _jsonld_property_evidence_text(item: Dict[str, Any]) -> Optional[str]:
+    label = _clean_text(item.get("name") or item.get("propertyID"))
+    value = _evidence_value_text(item.get("value"))
+    unit = _clean_text(item.get("unitText") or item.get("unitCode"))
+    if not label or not value:
+        return None
+    if unit and not value.casefold().endswith(unit.casefold()):
+        value = f"{value} {unit}"
+    return f"{label}: {value}"
 
 
 def _extract_jsonld_specs(
@@ -699,12 +725,20 @@ def _extract_jsonld_specs(
     for item in _as_list(product_data.get("additionalProperty")):
         if not isinstance(item, dict):
             continue
+        raw_text = _jsonld_property_evidence_text(item)
         spec = _build_spec(
             item.get("name") or item.get("propertyID"),
             item.get("value"),
             source_url,
             CONFIDENCE_BY_SOURCE["json_ld_spec"],
             item.get("unitText") or item.get("unitCode"),
+            ClaimEvidence(
+                raw_text=raw_text,
+                source_url=source_url,
+                extraction_method="jsonld_additional_property",
+            )
+            if raw_text
+            else None,
         )
         if spec:
             specs.append(spec)
@@ -762,6 +796,20 @@ def _has_spec_context(tag: Tag) -> bool:
     return False
 
 
+def _section_heading(tag: Tag) -> Optional[str]:
+    current: Optional[Tag] = tag
+    for _ in range(7):
+        if current is None:
+            break
+        heading = current.find(["h1", "h2", "h3", "h4"], recursive=False)
+        if isinstance(heading, Tag):
+            heading_text = _clean_text(heading.get_text(" ", strip=True))
+            if heading_text:
+                return heading_text
+        current = current.parent if isinstance(current.parent, Tag) else None
+    return None
+
+
 def _extract_table_specs(soup: BeautifulSoup, source_url: str) -> List[ProductSpec]:
     specs: List[ProductSpec] = []
     confidence = CONFIDENCE_BY_SOURCE["structured_html_spec"]
@@ -781,6 +829,12 @@ def _extract_table_specs(soup: BeautifulSoup, source_url: str) -> List[ProductSp
             value_tag.get_text(" ", strip=True),
             source_url,
             confidence,
+            evidence=ClaimEvidence(
+                raw_text=row.get_text(" ", strip=True),
+                source_url=source_url,
+                extraction_method="html_spec_table",
+                section_heading=_section_heading(row),
+            ),
         )
         if spec:
             specs.append(spec)
@@ -805,6 +859,13 @@ def _extract_definition_specs(
                 definition.get_text(" ", strip=True),
                 source_url,
                 confidence,
+                evidence=ClaimEvidence(
+                    raw_text=f"{term.get_text(' ', strip=True)} "
+                    f"{definition.get_text(' ', strip=True)}",
+                    source_url=source_url,
+                    extraction_method="html_definition_list",
+                    section_heading=_section_heading(definition_list),
+                ),
             )
             if spec:
                 specs.append(spec)
@@ -826,13 +887,16 @@ def _deduplicate_specs(specs: Sequence[ProductSpec]) -> List[ProductSpec]:
     return deduplicated
 
 
-def _feature_values(value: Any) -> Iterable[Tuple[str, Optional[str]]]:
+def _feature_values(
+    value: Any,
+) -> Iterable[Tuple[str, Optional[str], str]]:
     for item in _as_list(value):
         if isinstance(item, dict):
             name = _clean_text(item.get("name") or item.get("headline"))
             description = _clean_text(item.get("description"))
             if name:
-                yield name, description
+                raw_text = f"{name}: {description}" if description else name
+                yield name, description, raw_text
             continue
         text = _clean_text(item)
         if not text:
@@ -843,7 +907,7 @@ def _feature_values(value: Any) -> Iterable[Tuple[str, Optional[str]]]:
         ]
         for part in parts:
             if part:
-                yield part, None
+                yield part, None, part
 
 
 def _build_feature(
@@ -851,6 +915,7 @@ def _build_feature(
     description: Any,
     source_url: str,
     confidence: float,
+    evidence: Optional[ClaimEvidence] = None,
 ) -> Optional[ProductFeature]:
     clean_name = _clean_text(name)
     if not clean_name:
@@ -863,6 +928,7 @@ def _build_feature(
         source_url=source_url,
         confidence=confidence,
         verified=False,
+        evidence=evidence,
     )
 
 
@@ -872,8 +938,20 @@ def _extract_jsonld_features(
 ) -> List[ProductFeature]:
     features: List[ProductFeature] = []
     confidence = CONFIDENCE_BY_SOURCE["json_ld_feature"]
-    for name, description in _feature_values(product_data.get("featureList")):
-        feature = _build_feature(name, description, source_url, confidence)
+    for name, description, raw_text in _feature_values(
+        product_data.get("featureList")
+    ):
+        feature = _build_feature(
+            name,
+            description,
+            source_url,
+            confidence,
+            ClaimEvidence(
+                raw_text=raw_text,
+                source_url=source_url,
+                extraction_method="jsonld_feature_list",
+            ),
+        )
         if feature:
             features.append(feature)
     return features
@@ -929,7 +1007,18 @@ def _extract_html_features(
             if not name:
                 continue
             description = full_text[len(name) :].lstrip(" :-–—") or None
-            feature = _build_feature(name, description, source_url, confidence)
+            feature = _build_feature(
+                name,
+                description,
+                source_url,
+                confidence,
+                ClaimEvidence(
+                    raw_text=full_text,
+                    source_url=source_url,
+                    extraction_method="explicit_feature_section",
+                    section_heading=_section_heading(container),
+                ),
+            )
             if feature:
                 features.append(feature)
     return features

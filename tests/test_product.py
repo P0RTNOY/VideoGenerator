@@ -3,11 +3,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from product import (
+    ClaimEvidence,
     Product,
     ProductFeature,
     ProductImage,
@@ -20,6 +22,76 @@ from product import (
 
 
 class ProductModelTests(unittest.TestCase):
+    def test_claim_evidence_records_utc_extraction_context(self) -> None:
+        evidence = ClaimEvidence(
+            raw_text="Battery Life: Up to 20 hours",
+            source_url="https://example.com/product",
+            extraction_method="html_spec_table",
+            section_heading="Specifications",
+            locator="table row 2",
+        )
+
+        self.assertEqual(evidence.raw_text, "Battery Life: Up to 20 hours")
+        self.assertEqual(evidence.source_url, "https://example.com/product")
+        self.assertEqual(evidence.extraction_method, "html_spec_table")
+        self.assertEqual(evidence.section_heading, "Specifications")
+        self.assertEqual(evidence.locator, "table row 2")
+        self.assertIsInstance(evidence.extracted_at, datetime)
+        self.assertEqual(evidence.extracted_at.tzinfo, timezone.utc)
+
+    def test_claim_evidence_requires_timezone_aware_datetime_and_normalizes_to_utc(
+        self,
+    ) -> None:
+        source_time = datetime(
+            2026,
+            8,
+            9,
+            15,
+            30,
+            tzinfo=timezone(timedelta(hours=3)),
+        )
+        evidence = ClaimEvidence(
+            raw_text="Battery Life: Up to 20 hours",
+            source_url="https://example.com/product",
+            extraction_method="html_spec_table",
+            extracted_at=source_time,
+        )
+
+        self.assertEqual(
+            evidence.extracted_at,
+            datetime(2026, 8, 9, 12, 30, tzinfo=timezone.utc),
+        )
+        self.assertEqual(evidence.extracted_at.tzinfo, timezone.utc)
+
+        with self.assertRaises(ValidationError):
+            ClaimEvidence(
+                raw_text="Battery Life: Up to 20 hours",
+                source_url="https://example.com/product",
+                extraction_method="html_spec_table",
+                extracted_at=datetime(2026, 8, 9, 12, 30),
+            )
+
+    def test_claim_evidence_rejects_blank_required_fields_and_unknown_fields(
+        self,
+    ) -> None:
+        valid_data = {
+            "raw_text": "Battery Life: Up to 20 hours",
+            "source_url": "https://example.com/product",
+            "extraction_method": "html_spec_table",
+        }
+
+        for field_name in ("raw_text", "source_url", "extraction_method"):
+            with self.subTest(field=field_name), self.assertRaises(ValidationError):
+                ClaimEvidence(**{**valid_data, field_name: "   "})
+
+        with self.assertRaises(ValidationError) as context:
+            ClaimEvidence(**valid_data, unsupported="not allowed")
+
+        self.assertIn(
+            ("unsupported",),
+            {tuple(error["loc"]) for error in context.exception.errors()},
+        )
+
     def test_product_creation(self) -> None:
         product = Product(
             id="soundcore-select-4-go",
@@ -169,6 +241,78 @@ class ProductModelTests(unittest.TestCase):
 
 
 class ProductPersistenceTests(unittest.TestCase):
+    def test_product_spec_evidence_round_trips_through_json(self) -> None:
+        extracted_at = datetime(2026, 8, 9, 12, 30, tzinfo=timezone.utc)
+        product = Product(
+            id="example-speaker",
+            name="Example Speaker",
+            brand="Example",
+            category="Portable Speaker",
+            specs=[
+                ProductSpec(
+                    key="battery_life",
+                    label="Battery Life",
+                    value="up to 20 hours",
+                    source_url="https://example.com/product",
+                    confidence=0.85,
+                    evidence=ClaimEvidence(
+                        raw_text="Battery Life: Up to 20 hours",
+                        source_url="https://example.com/product",
+                        extraction_method="html_spec_table",
+                        section_heading="Specifications",
+                        extracted_at=extracted_at,
+                    ),
+                )
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_path = Path(temporary_directory) / "product.json"
+            save_product(product, output_path)
+            json_data = json.loads(output_path.read_text(encoding="utf-8"))
+            loaded_product = load_product(output_path)
+
+        evidence = loaded_product.specs[0].evidence
+        self.assertIsInstance(evidence, ClaimEvidence)
+        self.assertEqual(evidence.extracted_at, extracted_at)
+        self.assertEqual(
+            json_data["specs"][0]["evidence"]["extracted_at"],
+            "2026-08-09T12:30:00Z",
+        )
+        self.assertEqual(loaded_product, product)
+
+    def test_product_feature_evidence_round_trips_through_json(self) -> None:
+        product = Product(
+            id="example-speaker",
+            name="Example Speaker",
+            brand="Example",
+            category="Portable Speaker",
+            features=[
+                ProductFeature(
+                    id="carry-loop",
+                    name="Carry loop",
+                    source_url="https://example.com/product",
+                    confidence=0.75,
+                    evidence=ClaimEvidence(
+                        raw_text="Carry loop: Included for convenient carrying.",
+                        source_url="https://example.com/product",
+                        extraction_method="explicit_feature_section",
+                        section_heading="Features",
+                    ),
+                )
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_path = Path(temporary_directory) / "product.json"
+            save_product(product, output_path)
+            loaded_product = load_product(output_path)
+
+        evidence = loaded_product.features[0].evidence
+        self.assertIsInstance(evidence, ClaimEvidence)
+        self.assertEqual(evidence.raw_text, "Carry loop: Included for convenient carrying.")
+        self.assertEqual(loaded_product, product)
+
     def test_save_product_writes_human_readable_utf8_json(self) -> None:
         product = Product(
             id="cafe-speaker",
@@ -223,6 +367,8 @@ class ProductPersistenceTests(unittest.TestCase):
         self.assertIsInstance(loaded_product.features[0], ProductFeature)
         self.assertIsInstance(loaded_product.sources[0], ProductSource)
         self.assertEqual(loaded_product.specs[0].value, 2)
+        self.assertIsNone(loaded_product.specs[0].evidence)
+        self.assertIsNone(loaded_product.features[0].evidence)
         self.assertFalse(loaded_product.specs[0].verified)
 
     def test_load_product_rejects_malformed_json_cleanly(self) -> None:

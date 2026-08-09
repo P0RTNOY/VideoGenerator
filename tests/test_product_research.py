@@ -2,6 +2,7 @@ import io
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -61,6 +62,91 @@ class ProductResearchIdentityTests(unittest.TestCase):
 
 
 class ProductResearchExtractionTests(unittest.TestCase):
+    def test_jsonld_specs_and_features_include_source_evidence(self) -> None:
+        source_url = "https://shop.example/products/trail-speaker"
+
+        product = product_research.research_product_from_html(
+            fixture_text("jsonld_product.html"),
+            source_url,
+        )
+        battery = next(spec for spec in product.specs if spec.key == "battery_life")
+        rugged_loop = next(
+            feature
+            for feature in product.features
+            if feature.name == "Rugged carry loop"
+        )
+
+        self.assertIsNotNone(battery.evidence)
+        self.assertEqual(battery.evidence.raw_text, "Battery Life: 20 hours")
+        self.assertEqual(
+            battery.evidence.extraction_method,
+            "jsonld_additional_property",
+        )
+        self.assertEqual(battery.evidence.source_url, source_url)
+        self.assertEqual(battery.evidence.extracted_at.tzinfo, timezone.utc)
+        self.assertIsNotNone(rugged_loop.evidence)
+        self.assertEqual(rugged_loop.evidence.raw_text, "Rugged carry loop")
+        self.assertEqual(
+            rugged_loop.evidence.extraction_method,
+            "jsonld_feature_list",
+        )
+        self.assertEqual(rugged_loop.evidence.source_url, source_url)
+
+    def test_existing_html_extractors_include_section_evidence(self) -> None:
+        source_url = "https://shop.example/products/trail-speaker"
+        table_product = product_research.research_product_from_html(
+            fixture_text("jsonld_product.html"),
+            source_url,
+        )
+        table_spec = next(
+            spec for spec in table_product.specs if spec.key == "weight"
+        )
+        html_feature = next(
+            feature
+            for feature in table_product.features
+            if feature.name == "One-button control"
+        )
+
+        self.assertIsNotNone(table_spec.evidence)
+        self.assertEqual(table_spec.evidence.raw_text, "Weight 450 g")
+        self.assertEqual(table_spec.evidence.extraction_method, "html_spec_table")
+        self.assertEqual(table_spec.evidence.section_heading, "Specifications")
+        self.assertIsNotNone(html_feature.evidence)
+        self.assertEqual(
+            html_feature.evidence.raw_text,
+            "One-button control Keeps operation simple.",
+        )
+        self.assertEqual(
+            html_feature.evidence.extraction_method,
+            "explicit_feature_section",
+        )
+        self.assertEqual(html_feature.evidence.section_heading, "Features")
+
+        definition_url = "https://example.com/products/select-go"
+        definition_product = product_research.research_product_from_html(
+            fixture_text("jsonld_graph.html"),
+            definition_url,
+        )
+        definition_spec = next(
+            spec
+            for spec in definition_product.specs
+            if spec.key == "water_resistance"
+        )
+
+        self.assertIsNotNone(definition_spec.evidence)
+        self.assertEqual(
+            definition_spec.evidence.raw_text,
+            "Water Resistance Yes",
+        )
+        self.assertEqual(
+            definition_spec.evidence.extraction_method,
+            "html_definition_list",
+        )
+        self.assertEqual(
+            definition_spec.evidence.section_heading,
+            "Technical details",
+        )
+
     def test_jsonld_and_table_specs_are_deduplicated_by_confidence(self) -> None:
         research = product_research
         source_url = "https://shop.example/products/trail-speaker"
@@ -75,6 +161,10 @@ class ProductResearchExtractionTests(unittest.TestCase):
         self.assertEqual(specs["battery_life"].value, 20)
         self.assertEqual(specs["battery_life"].unit, "hours")
         self.assertEqual(specs["battery_life"].confidence, 0.95)
+        self.assertEqual(
+            specs["battery_life"].evidence.extraction_method,
+            "jsonld_additional_property",
+        )
         self.assertEqual(specs["weight"].value, 450)
         self.assertEqual(specs["weight"].unit, "g")
         self.assertEqual(specs["weight"].confidence, 0.85)
@@ -96,6 +186,10 @@ class ProductResearchExtractionTests(unittest.TestCase):
             {"Rugged carry loop", "Simple controls", "One-button control"},
         )
         self.assertEqual(features["Rugged carry loop"].confidence, 0.90)
+        self.assertEqual(
+            features["Rugged carry loop"].evidence.extraction_method,
+            "jsonld_feature_list",
+        )
         self.assertEqual(features["Simple controls"].confidence, 0.90)
         self.assertEqual(features["One-button control"].confidence, 0.75)
         self.assertNotIn(
@@ -273,9 +367,11 @@ class ProductGroupResearchTests(unittest.TestCase):
         self.assertEqual(features["carry-loop"].name, "Carry loop")
         for spec in specs.values():
             self.assertEqual(spec.source_url, source_url)
+            self.assertEqual(spec.evidence.source_url, source_url)
             self.assertFalse(spec.verified)
         for feature in features.values():
             self.assertEqual(feature.source_url, source_url)
+            self.assertEqual(feature.evidence.source_url, source_url)
             self.assertFalse(feature.verified)
 
     def test_product_group_in_top_level_array_is_supported(self) -> None:
@@ -467,6 +563,27 @@ class ProductResearchFetchTests(unittest.TestCase):
 
         self.assertEqual(product.name, "Meta Speaker")
         self.assertEqual(product.sources[0].url, response.url)
+
+    def test_final_redirected_url_is_preserved_in_claim_evidence(self) -> None:
+        research = product_research
+        session = Mock()
+        response = Mock()
+        response.url = "https://shop.example/products/trail-speaker?redirected=1"
+        response.headers = {"Content-Type": "text/html"}
+        response.text = fixture_text("jsonld_product.html")
+        session.get.return_value = response
+
+        product = research.research_product(
+            "https://shop.example/go/trail-speaker",
+            session=session,
+        )
+
+        self.assertTrue(product.specs)
+        self.assertTrue(product.features)
+        for claim in [*product.specs, *product.features]:
+            self.assertEqual(claim.source_url, response.url)
+            self.assertIsNotNone(claim.evidence)
+            self.assertEqual(claim.evidence.source_url, response.url)
 
 
 class ProductResearchCliTests(unittest.TestCase):

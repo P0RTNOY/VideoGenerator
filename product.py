@@ -1,9 +1,10 @@
 """Typed product domain models for the product-ad pipeline."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 
 NonEmptyStr = Annotated[
@@ -17,6 +18,24 @@ class ProductModel(BaseModel):
     """Base configuration shared by product domain models."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+
+class ClaimEvidence(ProductModel):
+    raw_text: NonEmptyStr
+    source_url: NonEmptyStr
+    extraction_method: NonEmptyStr
+    section_heading: Optional[NonEmptyStr] = None
+    extracted_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    locator: Optional[NonEmptyStr] = None
+
+    @field_validator("extracted_at")
+    @classmethod
+    def require_utc_aware_datetime(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("extracted_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
 
 
 class ProductVariant(ProductModel):
@@ -46,6 +65,7 @@ class ProductSpec(ProductModel):
     source_url: Optional[NonEmptyStr] = None
     confidence: Optional[float] = Field(default=None, ge=0, le=1, strict=True)
     verified: bool = False
+    evidence: Optional[ClaimEvidence] = None
 
 
 class ProductFeature(ProductModel):
@@ -55,6 +75,7 @@ class ProductFeature(ProductModel):
     source_url: Optional[NonEmptyStr] = None
     confidence: Optional[float] = Field(default=None, ge=0, le=1, strict=True)
     verified: bool = False
+    evidence: Optional[ClaimEvidence] = None
 
 
 class ProductSource(ProductModel):
