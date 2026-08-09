@@ -28,6 +28,7 @@ CONFIDENCE_BY_SOURCE = {
     "json_ld_feature": 0.90,
     "structured_html_spec": 0.85,
     "feature_section": 0.75,
+    "primary_product_claim_list": 0.65,
 }
 
 REQUEST_HEADERS = {
@@ -1024,6 +1025,613 @@ def _extract_html_features(
     return features
 
 
+_IDENTITY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "by",
+    "for",
+    "official",
+    "the",
+    "with",
+}
+
+_EXCLUDED_PRIMARY_CONTEXT = {
+    "aside",
+    "cart",
+    "checkout",
+    "comparison",
+    "coupon",
+    "delivery",
+    "dialog",
+    "faq",
+    "footer",
+    "modal",
+    "navigation",
+    "offer",
+    "order",
+    "overlay",
+    "promotion",
+    "purchase",
+    "question",
+    "rating",
+    "recommendation",
+    "related",
+    "return",
+    "review",
+    "shipping",
+    "setup",
+    "testimonial",
+    "warranty",
+}
+
+_EXCLUDED_PRIMARY_CONTEXT_PREFIXES = {
+    "compar",
+    "coupon",
+    "deliver",
+    "footer",
+    "navigat",
+    "offer",
+    "order",
+    "promot",
+    "purchas",
+    "question",
+    "rating",
+    "recommend",
+    "return",
+    "review",
+    "ship",
+    "testimon",
+    "warrant",
+}
+
+_IP_RATING_PATTERN = r"\bIP[0-6X][0-9X]\b"
+
+
+def _meaningful_identity_tokens(value: str, brand: str) -> Set[str]:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    brand_normalized = unicodedata.normalize("NFKD", brand)
+    brand_ascii = brand_normalized.encode("ascii", "ignore").decode("ascii")
+    brand_tokens = set(re.findall(r"[a-z0-9]+", brand_ascii.casefold()))
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", ascii_text.casefold())
+        if token not in brand_tokens and token not in _IDENTITY_STOPWORDS
+    }
+
+
+def _find_primary_product_h1(
+    soup: BeautifulSoup,
+    product_name: str,
+    brand: str,
+) -> Optional[Tag]:
+    main = soup.find("main")
+    if not isinstance(main, Tag):
+        return None
+    product_tokens = _meaningful_identity_tokens(product_name, brand)
+    if not product_tokens:
+        return None
+    required_overlap = 1 if len(product_tokens) == 1 else 2
+    matches: List[Tag] = []
+    for heading in main.find_all("h1"):
+        heading_text = _clean_text(heading.get_text(" ", strip=True))
+        if not heading_text:
+            continue
+        heading_tokens = _meaningful_identity_tokens(heading_text, brand)
+        overlap = product_tokens & heading_tokens
+        if (
+            len(overlap) >= required_overlap
+            and len(overlap) / len(product_tokens) >= 0.5
+        ):
+            matches.append(heading)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _direct_list_item_text(item: Tag, candidate_list: Tag) -> Optional[str]:
+    parts = [
+        str(text)
+        for text in item.find_all(string=True)
+        if text.find_parent(["ul", "ol"]) is candidate_list
+    ]
+    return _clean_text(" ".join(parts))
+
+
+def _close_common_ancestor(first: Tag, second: Tag) -> bool:
+    first_parents = list(first.parents)
+    second_parents = list(second.parents)
+    for first_distance, ancestor in enumerate(first_parents, start=1):
+        if ancestor not in second_parents:
+            continue
+        if not isinstance(ancestor, Tag) or ancestor.name in {"main", "body", "html"}:
+            return False
+        second_distance = second_parents.index(ancestor) + 1
+        return first_distance + second_distance <= 8
+    return False
+
+
+def _has_excluded_primary_context(tag: Tag, stop_at: Tag) -> bool:
+    current: Optional[Tag] = tag
+    while current is not None and current is not stop_at:
+        if current.name in {"header", "footer", "nav", "aside", "dialog"}:
+            return True
+        identifiers = _identifier_values(current)
+        identifier_tokens = {
+            token
+            for identifier in identifiers
+            for token in identifier.split("-")
+        }
+        if identifier_tokens & _EXCLUDED_PRIMARY_CONTEXT:
+            return True
+        if any(
+            token.startswith(prefix)
+            for token in identifier_tokens
+            for prefix in _EXCLUDED_PRIMARY_CONTEXT_PREFIXES
+        ):
+            return True
+        current = current.parent if isinstance(current.parent, Tag) else None
+    return False
+
+
+def _has_claim_label_shape(item: Tag, raw_text: str) -> bool:
+    heading = item.find(["strong", "b"])
+    if (
+        isinstance(heading, Tag)
+        and heading.find_parent("li") is item
+        and _clean_text(heading.get_text(" ", strip=True))
+    ):
+        return True
+    label, separator, _ = raw_text.partition(":")
+    return bool(separator and 2 <= len(label.strip()) <= 80)
+
+
+def _is_mostly_links(items: Sequence[Tag], raw_texts: Sequence[str]) -> bool:
+    linked_items = 0
+    for item, raw_text in zip(items, raw_texts):
+        link_text = _clean_text(
+            " ".join(link.get_text(" ", strip=True) for link in item.find_all("a"))
+        )
+        if link_text and len(link_text) / len(raw_text) >= 0.8:
+            linked_items += 1
+    return linked_items * 2 > len(items)
+
+
+def _has_primary_fact_signal(raw_text: str) -> bool:
+    has_ip_rating = bool(
+        re.search(_IP_RATING_PATTERN, raw_text, re.IGNORECASE)
+        and re.search(
+            r"\b(?:dust|immers|protection|rated|rating|resistan|water)",
+            raw_text,
+            re.IGNORECASE,
+        )
+    )
+    has_playback_duration = bool(
+        re.search(
+            r"\b(?:battery\s+life|playback|playtime|runtime)\b",
+            raw_text,
+            re.IGNORECASE,
+        )
+        and re.search(r"\b\d+(?:\.\d+)?\s*[- ]?\s*(?:hours?|hrs?)\b", raw_text, re.IGNORECASE)
+    )
+    has_output_power = bool(
+        re.search(r"\b(?:output|power)\b", raw_text, re.IGNORECASE)
+        and re.search(r"\b\d+(?:\.\d+)?\s*(?:W|watts?)\b", raw_text, re.IGNORECASE)
+    )
+    has_floating = bool(
+        re.search(
+            r"\b(?:can\s+(?:even\s+)?float|floats|floating\s+"
+            r"(?:design|capability)|stays?\s+afloat)\b",
+            raw_text,
+            re.IGNORECASE,
+        )
+    )
+    has_included_strap = bool(
+        re.search(
+            r"\b(?:includes?|included|comes?\s+with|provides?|provided\s+with)\b"
+            r".{0,50}\b(?:carrying\s+)?strap\b",
+            raw_text,
+            re.IGNORECASE,
+        )
+    )
+    has_tws = bool(
+        re.search(
+            r"\b(?:True\s+Wireless\s+Stereo|TWS)\b",
+            raw_text,
+            re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:compatib|connect|enable|pair|support)",
+            raw_text,
+            re.IGNORECASE,
+        )
+    )
+    has_immersion = bool(
+        re.search(r"\b(?:immers|submerg|water)", raw_text, re.IGNORECASE)
+        and re.search(
+            r"\b\d+(?:\.\d+)?\s*(?:ft|foot|feet|m|meter|meters|metre|metres)\b"
+            r".{0,80}?\bfor\s+(?:up\s+to\s+|approximately\s+|"
+            r"about\s+|at\s+least\s+)?\d+(?:\.\d+)?\s*"
+            r"(?:min|mins|minute|minutes|hour|hours)\b",
+            raw_text,
+            re.IGNORECASE,
+        )
+    )
+    return any(
+        (
+            has_ip_rating,
+            has_playback_duration,
+            has_output_power,
+            has_floating,
+            has_included_strap,
+            has_tws,
+            has_immersion,
+        )
+    )
+
+
+def _is_primary_claim_list(candidate_list: Tag, product_h1: Tag) -> bool:
+    main = candidate_list.find_parent("main")
+    if not isinstance(main, Tag) or product_h1.find_parent("main") is not main:
+        return False
+    nearest_heading = candidate_list.find_previous(["h1", "h2", "h3", "h4"])
+    if nearest_heading is not product_h1:
+        return False
+    if not _close_common_ancestor(candidate_list, product_h1):
+        return False
+    if _has_excluded_primary_context(candidate_list, main):
+        return False
+
+    items = candidate_list.find_all("li", recursive=False)
+    if not 2 <= len(items) <= 10:
+        return False
+    raw_texts = [_direct_list_item_text(item, candidate_list) for item in items]
+    if any(not text or len(text) > 600 for text in raw_texts):
+        return False
+    present_texts = [text for text in raw_texts if text]
+    if _is_mostly_links(items, present_texts):
+        return False
+    label_count = sum(
+        _has_claim_label_shape(item, raw_text)
+        for item, raw_text in zip(items, present_texts)
+    )
+    fact_count = sum(_has_primary_fact_signal(raw_text) for raw_text in present_texts)
+    return (
+        label_count * 3 >= len(items) * 2
+        and fact_count * 2 >= len(items)
+    )
+
+
+def _primary_claim_evidence(
+    raw_text: str,
+    source_url: str,
+    product_h1: Tag,
+) -> ClaimEvidence:
+    return ClaimEvidence(
+        raw_text=raw_text,
+        source_url=source_url,
+        extraction_method="primary_product_claim_list",
+        section_heading=_clean_text(product_h1.get_text(" ", strip=True)),
+    )
+
+
+def _extract_ip_claim(
+    raw_text: str,
+    source_url: str,
+    product_h1: Tag,
+) -> Optional[ProductSpec]:
+    rating_match = re.search(_IP_RATING_PATTERN, raw_text, re.IGNORECASE)
+    if not rating_match or not re.search(
+        r"\b(?:dust|immers|protection|rated|rating|resistan|water)",
+        raw_text,
+        re.IGNORECASE,
+    ):
+        return None
+    return ProductSpec(
+        key="water_resistance",
+        label="Water Resistance",
+        value=rating_match.group(0).upper(),
+        source_url=source_url,
+        confidence=CONFIDENCE_BY_SOURCE["primary_product_claim_list"],
+        verified=False,
+        evidence=_primary_claim_evidence(raw_text, source_url, product_h1),
+    )
+
+
+def _primary_spec(
+    key: str,
+    label: str,
+    value: object,
+    source_url: str,
+    product_h1: Tag,
+    raw_text: str,
+    unit: Optional[str] = None,
+) -> ProductSpec:
+    return ProductSpec(
+        key=key,
+        label=label,
+        value=value,
+        unit=unit,
+        source_url=source_url,
+        confidence=CONFIDENCE_BY_SOURCE["primary_product_claim_list"],
+        verified=False,
+        evidence=_primary_claim_evidence(raw_text, source_url, product_h1),
+    )
+
+
+def _primary_feature(
+    feature_id: str,
+    name: str,
+    source_url: str,
+    product_h1: Tag,
+    raw_text: str,
+    description: Optional[str] = None,
+) -> ProductFeature:
+    return ProductFeature(
+        id=feature_id,
+        name=name,
+        description=description,
+        source_url=source_url,
+        confidence=CONFIDENCE_BY_SOURCE["primary_product_claim_list"],
+        verified=False,
+        evidence=_primary_claim_evidence(raw_text, source_url, product_h1),
+    )
+
+
+def _extract_playback_claim(
+    raw_text: str,
+    source_url: str,
+    product_h1: Tag,
+) -> Optional[ProductSpec]:
+    if not re.search(
+        r"\b(?:battery\s+life|playback|playtime|runtime)\b",
+        raw_text,
+        re.IGNORECASE,
+    ):
+        return None
+    qualified = re.search(
+        r"\b(?P<qualifier>up\s+to|approximately|about|at\s+least)\s+"
+        r"(?P<number>\d+(?:\.\d+)?)\s*[- ]?\s*(?:hours?|hrs?)\b",
+        raw_text,
+        re.IGNORECASE,
+    )
+    duration = qualified or re.search(
+        r"\b(?P<number>\d+(?:\.\d+)?)\s*[- ]?\s*(?:hours?|hrs?)\b",
+        raw_text,
+        re.IGNORECASE,
+    )
+    if not duration:
+        return None
+    qualifier = duration.groupdict().get("qualifier")
+    value = " ".join(
+        part
+        for part in (
+            qualifier.casefold() if qualifier else None,
+            duration.group("number"),
+            "hours",
+        )
+        if part
+    )
+    return _primary_spec(
+        "playback_time",
+        "Playback Time",
+        value,
+        source_url,
+        product_h1,
+        raw_text,
+    )
+
+
+def _extract_output_power_claim(
+    raw_text: str,
+    source_url: str,
+    product_h1: Tag,
+) -> Optional[ProductSpec]:
+    if not re.search(r"\b(?:output|power)\b", raw_text, re.IGNORECASE):
+        return None
+    power = re.search(
+        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?:W|watts?)\b",
+        raw_text,
+        re.IGNORECASE,
+    )
+    if not power:
+        return None
+    numeric_value = _numeric_value(power.group("value"))
+    if numeric_value is None:
+        return None
+    return _primary_spec(
+        "output_power",
+        "Output Power",
+        numeric_value,
+        source_url,
+        product_h1,
+        raw_text,
+        unit="W",
+    )
+
+
+def _qualified_measurement(
+    qualifier: Optional[str],
+    number: str,
+    unit: str,
+) -> str:
+    normalized_units = {
+        "ft": "feet",
+        "foot": "feet",
+        "feet": "feet",
+        "m": "meters",
+        "meter": "meters",
+        "meters": "meters",
+        "metre": "meters",
+        "metres": "meters",
+        "min": "minutes",
+        "mins": "minutes",
+        "minute": "minutes",
+        "minutes": "minutes",
+        "hour": "hours",
+        "hours": "hours",
+    }
+    parts = [
+        qualifier.casefold() if qualifier else None,
+        number,
+        normalized_units[unit.casefold()],
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def _extract_immersion_claim(
+    raw_text: str,
+    source_url: str,
+    product_h1: Tag,
+) -> Optional[ProductSpec]:
+    if not re.search(r"\b(?:immers|submerg|water)", raw_text, re.IGNORECASE):
+        return None
+    measurement = re.search(
+        r"(?P<depth_qualifier>up\s+to|approximately|about|at\s+least)?\s*"
+        r"(?P<depth>\d+(?:\.\d+)?)\s*"
+        r"(?P<depth_unit>ft|foot|feet|m|meter|meters|metre|metres)\b"
+        r".{0,80}?\bfor\s+"
+        r"(?P<duration_qualifier>up\s+to|approximately|about|at\s+least)?\s*"
+        r"(?P<duration>\d+(?:\.\d+)?)\s*"
+        r"(?P<duration_unit>min|mins|minute|minutes|hour|hours)\b",
+        raw_text,
+        re.IGNORECASE,
+    )
+    if not measurement:
+        return None
+    depth = _qualified_measurement(
+        measurement.group("depth_qualifier"),
+        measurement.group("depth"),
+        measurement.group("depth_unit"),
+    )
+    duration = _qualified_measurement(
+        measurement.group("duration_qualifier"),
+        measurement.group("duration"),
+        measurement.group("duration_unit"),
+    )
+    return _primary_spec(
+        "immersion_protection",
+        "Immersion Protection",
+        f"{depth} for {duration}",
+        source_url,
+        product_h1,
+        raw_text,
+    )
+
+
+def _extract_primary_features(
+    raw_text: str,
+    source_url: str,
+    product_h1: Tag,
+) -> List[ProductFeature]:
+    features: List[ProductFeature] = []
+    if re.search(
+        r"\b(?:can\s+(?:even\s+)?float|floats|floating\s+(?:design|capability)|"
+        r"stays?\s+afloat)\b",
+        raw_text,
+        re.IGNORECASE,
+    ):
+        features.append(
+            _primary_feature(
+                "floating-design",
+                "Floating design",
+                source_url,
+                product_h1,
+                raw_text,
+            )
+        )
+    if re.search(
+        r"\b(?:includes?|included|comes?\s+with|provides?|provided\s+with)\b"
+        r".{0,50}\b(?:carrying\s+)?strap\b",
+        raw_text,
+        re.IGNORECASE,
+    ) or re.search(
+        r"\b(?:carrying\s+)?strap\b.{0,30}\b(?:included|provided)\b",
+        raw_text,
+        re.IGNORECASE,
+    ):
+        features.append(
+            _primary_feature(
+                "included-carrying-strap",
+                "Included carrying strap",
+                source_url,
+                product_h1,
+                raw_text,
+            )
+        )
+    if re.search(r"\b(?:True\s+Wireless\s+Stereo|TWS)\b", raw_text, re.IGNORECASE) and re.search(
+        r"\b(?:compatib|connect|enable|pair|support)",
+        raw_text,
+        re.IGNORECASE,
+    ):
+        _, separator, explanation = raw_text.partition(":")
+        description = (
+            explanation.strip()
+            if separator
+            and re.search(
+                r"\b(?:compatib|connect|hold|press|require|to\s+enable|"
+                r"two\s+speakers)",
+                explanation,
+                re.IGNORECASE,
+            )
+            else None
+        )
+        features.append(
+            _primary_feature(
+                "true-wireless-stereo",
+                "True Wireless Stereo",
+                source_url,
+                product_h1,
+                raw_text,
+                description=description,
+            )
+        )
+    return features
+
+
+def _extract_primary_product_claims(
+    soup: BeautifulSoup,
+    source_url: str,
+    product_name: str,
+    brand: str,
+) -> Tuple[List[ProductSpec], List[ProductFeature]]:
+    product_h1 = _find_primary_product_h1(soup, product_name, brand)
+    if product_h1 is None:
+        return [], []
+    main = product_h1.find_parent("main")
+    if not isinstance(main, Tag):
+        return [], []
+
+    specs: List[ProductSpec] = []
+    features: List[ProductFeature] = []
+    for candidate_list in main.find_all(["ul", "ol"]):
+        if not _is_primary_claim_list(candidate_list, product_h1):
+            continue
+        for item in candidate_list.find_all("li", recursive=False):
+            raw_text = _direct_list_item_text(item, candidate_list)
+            if not raw_text:
+                continue
+            spec = _extract_ip_claim(raw_text, source_url, product_h1)
+            if spec:
+                specs.append(spec)
+            playback = _extract_playback_claim(raw_text, source_url, product_h1)
+            if playback:
+                specs.append(playback)
+            output_power = _extract_output_power_claim(
+                raw_text,
+                source_url,
+                product_h1,
+            )
+            if output_power:
+                specs.append(output_power)
+            immersion = _extract_immersion_claim(raw_text, source_url, product_h1)
+            if immersion:
+                specs.append(immersion)
+            features.extend(
+                _extract_primary_features(raw_text, source_url, product_h1)
+            )
+    return specs, features
+
+
 def _deduplicate_features(
     features: Sequence[ProductFeature],
 ) -> List[ProductFeature]:
@@ -1166,6 +1774,12 @@ def research_product_from_html(html: str, source_url: str) -> Product:
     jsonld_entities = [page_entity_data]
     if selected_variant_data and selected_variant_data is not page_entity_data:
         jsonld_entities.append(selected_variant_data)
+    primary_specs, primary_features = _extract_primary_product_claims(
+        soup,
+        source_url,
+        name,
+        brand,
+    )
     specs = _deduplicate_specs(
         [
             *(
@@ -1175,6 +1789,7 @@ def research_product_from_html(html: str, source_url: str) -> Product:
             ),
             *_extract_table_specs(soup, source_url),
             *_extract_definition_specs(soup, source_url),
+            *primary_specs,
         ]
     )
     features = _deduplicate_features(
@@ -1185,6 +1800,7 @@ def research_product_from_html(html: str, source_url: str) -> Product:
                 for feature in _extract_jsonld_features(entity, source_url)
             ),
             *_extract_html_features(soup, source_url),
+            *primary_features,
         ]
     )
 

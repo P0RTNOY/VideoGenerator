@@ -324,6 +324,275 @@ class ProductResearchExtractionTests(unittest.TestCase):
         self.assertEqual(product.category, "Portable Speakers")
 
 
+class PrimaryProductClaimResearchTests(unittest.TestCase):
+    def test_unique_product_h1_admits_primary_list_and_extracts_ip_evidence(
+        self,
+    ) -> None:
+        source_url = "https://claims.example/products/trail-speaker-pro"
+
+        product = product_research.research_product_from_html(
+            fixture_text("primary_claims.html"),
+            source_url,
+        )
+        specs = {spec.key: spec for spec in product.specs}
+
+        self.assertIn("water_resistance", specs)
+        ip_spec = specs["water_resistance"]
+        self.assertEqual(ip_spec.label, "Water Resistance")
+        self.assertEqual(ip_spec.value, "IP67")
+        self.assertIsNone(ip_spec.unit)
+        self.assertEqual(ip_spec.confidence, 0.65)
+        self.assertFalse(ip_spec.verified)
+        self.assertEqual(ip_spec.source_url, source_url)
+        self.assertIsNotNone(ip_spec.evidence)
+        self.assertEqual(
+            ip_spec.evidence.raw_text,
+            "IP67 Protection: IP67 rated for water protection and can float. "
+            "It can be immersed in up to 3.3 feet for up to 30 minutes.",
+        )
+        self.assertEqual(
+            ip_spec.evidence.extraction_method,
+            "primary_product_claim_list",
+        )
+        self.assertEqual(ip_spec.evidence.section_heading, "Acme Trail Speaker Pro")
+        self.assertEqual(ip_spec.evidence.source_url, source_url)
+        self.assertNotIn("bluetooth_version", specs)
+
+    def test_primary_claim_classifier_emits_only_supported_qualified_facts(
+        self,
+    ) -> None:
+        source_url = "https://claims.example/products/trail-speaker-pro"
+
+        product = product_research.research_product_from_html(
+            fixture_text("primary_claims.html"),
+            source_url,
+        )
+        specs = {spec.key: spec for spec in product.specs}
+        features = {feature.id: feature for feature in product.features}
+
+        self.assertEqual(
+            set(specs),
+            {
+                "water_resistance",
+                "playback_time",
+                "output_power",
+                "immersion_protection",
+            },
+        )
+        self.assertEqual(specs["playback_time"].value, "up to 20 hours")
+        self.assertIsNone(specs["playback_time"].unit)
+        self.assertEqual(specs["output_power"].value, 5)
+        self.assertEqual(specs["output_power"].unit, "W")
+        self.assertEqual(
+            specs["immersion_protection"].value,
+            "up to 3.3 feet for up to 30 minutes",
+        )
+        self.assertIsNone(specs["immersion_protection"].unit)
+
+        self.assertEqual(
+            set(features),
+            {
+                "floating-design",
+                "included-carrying-strap",
+                "true-wireless-stereo",
+            },
+        )
+        self.assertEqual(features["floating-design"].name, "Floating design")
+        self.assertEqual(
+            features["included-carrying-strap"].name,
+            "Included carrying strap",
+        )
+        tws = features["true-wireless-stereo"]
+        self.assertEqual(tws.name, "True Wireless Stereo")
+        self.assertIn("requires two speakers", tws.description)
+        self.assertIn("2 seconds", tws.description)
+
+        ip_raw_text = specs["water_resistance"].evidence.raw_text
+        self.assertEqual(
+            specs["immersion_protection"].evidence.raw_text,
+            ip_raw_text,
+        )
+        self.assertEqual(features["floating-design"].evidence.raw_text, ip_raw_text)
+        for claim in [*specs.values(), *features.values()]:
+            self.assertEqual(claim.confidence, 0.65)
+            self.assertFalse(claim.verified)
+            self.assertEqual(claim.source_url, source_url)
+            self.assertEqual(claim.evidence.source_url, source_url)
+            self.assertEqual(
+                claim.evidence.extraction_method,
+                "primary_product_claim_list",
+            )
+
+        self.assertNotIn("bluetooth_version", specs)
+        self.assertNotIn("lightweight", features)
+        self.assertNotIn("powerful-sound", features)
+        self.assertNotIn("punchy-sound", features)
+
+    def test_primary_list_selection_is_css_agnostic(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("primary_claims_alt_classes.html"),
+            "https://alternate.example/products/studio-mini",
+        )
+
+        specs = {spec.key: spec for spec in product.specs}
+        features = {feature.id: feature for feature in product.features}
+        self.assertIn("water_resistance", specs)
+        self.assertEqual(specs["water_resistance"].value, "IP68")
+        self.assertEqual(specs["playback_time"].value, "approximately 8 hours")
+        self.assertIn("floating-design", features)
+
+    def test_marketing_links_overlays_and_excluded_sections_are_rejected(
+        self,
+    ) -> None:
+        html = fixture_text("primary_claims_rejections.html")
+        soup = product_research.BeautifulSoup(html, "html.parser")
+        product_h1 = product_research._find_primary_product_h1(
+            soup,
+            "Quiet Speaker",
+            "Generic Audio",
+        )
+
+        self.assertIsNotNone(product_h1)
+        for list_id in (
+            "navigation-list",
+            "before-title-list",
+            "marketing-only-list",
+            "mostly-links-list",
+            "purchase-steps-list",
+            "promotion-list",
+            "unheaded-reviews-list",
+            "overlay-list",
+            "shipping-list",
+            "returns-list",
+            "reviews-list",
+            "questions-list",
+            "recommendations-list",
+            "comparison-list",
+            "footer-list",
+        ):
+            with self.subTest(list_id=list_id):
+                candidate = soup.find(id=list_id)
+                self.assertFalse(
+                    product_research._is_primary_claim_list(candidate, product_h1)
+                )
+
+        product = product_research.research_product_from_html(
+            html,
+            "https://rejections.example/products/quiet-speaker",
+        )
+        self.assertEqual(product.specs, [])
+        self.assertEqual(product.features, [])
+
+    def test_ambiguous_product_h1_skips_primary_claim_extraction(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("primary_claims_ambiguous_h1.html"),
+            "https://ambiguous.example/products/twin-speaker",
+        )
+
+        self.assertEqual(product.specs, [])
+        self.assertEqual(product.features, [])
+
+    def test_missing_product_h1_skips_primary_claim_extraction(self) -> None:
+        html = fixture_text("primary_claims_alt_classes.html").replace(
+            "<h1>Studio Mini by EchoWorks</h1>",
+            "<p>Studio Mini by EchoWorks</p>",
+        )
+
+        product = product_research.research_product_from_html(
+            html,
+            "https://alternate.example/products/studio-mini",
+        )
+
+        self.assertEqual(product.specs, [])
+        self.assertEqual(product.features, [])
+
+    def test_instructional_seconds_do_not_become_playback_duration(self) -> None:
+        soup = product_research.BeautifulSoup(
+            "<main><h1>Pairing Speaker</h1></main>",
+            "html.parser",
+        )
+        product_h1 = soup.find("h1")
+
+        spec = product_research._extract_playback_claim(
+            "Stereo Pairing: Hold the button for 2 seconds to connect.",
+            "https://claims.example/products/pairing-speaker",
+            product_h1,
+        )
+
+        self.assertIsNone(spec)
+
+    def test_compound_immersion_is_a_primary_fact_signal(self) -> None:
+        self.assertTrue(
+            product_research._has_primary_fact_signal(
+                "Immersion Protection: Submersible to 1 meter for 30 minutes."
+            )
+        )
+
+    def test_ip_classifier_supports_ipx_ratings_but_rejects_invalid_ratings(
+        self,
+    ) -> None:
+        soup = product_research.BeautifulSoup(
+            "<main><h1>Protected Speaker</h1></main>",
+            "html.parser",
+        )
+        product_h1 = soup.find("h1")
+        source_url = "https://claims.example/products/protected-speaker"
+
+        supported = product_research._extract_ip_claim(
+            "Water Protection: The product has an IPX7 water rating.",
+            source_url,
+            product_h1,
+        )
+        unsupported = product_research._extract_ip_claim(
+            "Water Protection: The product claims an IP99 water rating.",
+            source_url,
+            product_h1,
+        )
+
+        self.assertIsNotNone(supported)
+        self.assertEqual(supported.value, "IPX7")
+        self.assertIsNone(unsupported)
+
+    def test_tws_compatibility_qualifier_is_preserved_in_description(self) -> None:
+        soup = product_research.BeautifulSoup(
+            "<main><h1>Pairing Speaker</h1></main>",
+            "html.parser",
+        )
+        product_h1 = soup.find("h1")
+
+        features = product_research._extract_primary_features(
+            "Stereo Pairing: Compatible with True Wireless Stereo speakers.",
+            "https://claims.example/products/pairing-speaker",
+            product_h1,
+        )
+
+        self.assertEqual(len(features), 1)
+        self.assertIsNotNone(features[0].description)
+        self.assertIn("Compatible with", features[0].description)
+
+    def test_higher_confidence_sources_keep_their_evidence_during_deduplication(
+        self,
+    ) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("primary_claims_dedup.html"),
+            "https://priority.example/products/source-priority-speaker",
+        )
+        specs = {spec.key: spec for spec in product.specs}
+        features = {feature.id: feature for feature in product.features}
+
+        self.assertEqual(specs["water_resistance"].value, "IP68")
+        self.assertEqual(specs["water_resistance"].confidence, 0.95)
+        self.assertEqual(
+            specs["water_resistance"].evidence.extraction_method,
+            "jsonld_additional_property",
+        )
+        self.assertEqual(features["floating-design"].confidence, 0.90)
+        self.assertEqual(
+            features["floating-design"].evidence.extraction_method,
+            "jsonld_feature_list",
+        )
+
+
 class ProductGroupResearchTests(unittest.TestCase):
     def test_direct_product_group_uses_group_identity_and_its_only_variant(self) -> None:
         source_url = "https://group.example/products/family-speaker"
@@ -583,6 +852,32 @@ class ProductResearchFetchTests(unittest.TestCase):
         for claim in [*product.specs, *product.features]:
             self.assertEqual(claim.source_url, response.url)
             self.assertIsNotNone(claim.evidence)
+            self.assertEqual(claim.evidence.source_url, response.url)
+
+    def test_final_redirected_url_is_preserved_in_primary_claim_evidence(
+        self,
+    ) -> None:
+        session = Mock()
+        response = Mock()
+        response.url = "https://claims.example/products/trail-speaker-pro?final=1"
+        response.headers = {"Content-Type": "text/html"}
+        response.text = fixture_text("primary_claims.html")
+        session.get.return_value = response
+
+        product = product_research.research_product(
+            "https://claims.example/go/trail-speaker-pro",
+            session=session,
+        )
+
+        primary_claims = [
+            claim
+            for claim in [*product.specs, *product.features]
+            if claim.evidence
+            and claim.evidence.extraction_method == "primary_product_claim_list"
+        ]
+        self.assertTrue(primary_claims)
+        for claim in primary_claims:
+            self.assertEqual(claim.source_url, response.url)
             self.assertEqual(claim.evidence.source_url, response.url)
 
 
