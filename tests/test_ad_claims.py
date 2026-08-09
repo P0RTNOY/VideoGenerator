@@ -7,8 +7,10 @@ from pydantic import ValidationError
 
 from ad_claims import (
     AdClaimCandidate,
+    AdClaimSelectionError,
     DuplicateAdClaimCandidateError,
     generate_ad_claim_candidates,
+    resolve_ad_claim_selection,
 )
 from product import ClaimEvidence, Product, ProductFeature, ProductSpec
 
@@ -386,6 +388,123 @@ class AdClaimCandidateTests(unittest.TestCase):
         invalid["selectable"] = True
         with self.assertRaises(ValidationError):
             AdClaimCandidate.model_validate(invalid)
+
+
+class AdClaimSelectionTests(unittest.TestCase):
+    def candidate_set(self) -> list[AdClaimCandidate]:
+        return generate_ad_claim_candidates(
+            sample_product(
+                specs=[
+                    ProductSpec(
+                        key="water_resistance",
+                        label="Water Resistance",
+                        value="IP67",
+                    ),
+                    ProductSpec(
+                        key="playback_time",
+                        label="Playback Time",
+                        value="up to 20 hours",
+                    ),
+                ],
+                features=[
+                    ProductFeature(id="floating-design", name="Floating design"),
+                    ProductFeature(
+                        id="true-wireless-stereo",
+                        name="True Wireless Stereo",
+                    ),
+                ],
+            )
+        )
+
+    def test_selection_resolves_in_candidate_source_order(self) -> None:
+        candidates = self.candidate_set()
+
+        selected = resolve_ad_claim_selection(
+            candidates,
+            ["feature:floating-design", "spec:playback_time"],
+        )
+
+        self.assertEqual(
+            [candidate.id for candidate in selected],
+            ["spec:playback_time", "feature:floating-design"],
+        )
+
+    def test_empty_selection_returns_empty_list(self) -> None:
+        self.assertEqual(resolve_ad_claim_selection(self.candidate_set(), []), [])
+
+    def test_unknown_selected_id_fails_clearly(self) -> None:
+        with self.assertRaisesRegex(
+            AdClaimSelectionError,
+            "unknown ad claim candidate ID: spec:not-present",
+        ):
+            resolve_ad_claim_selection(
+                self.candidate_set(),
+                ["spec:not-present"],
+            )
+
+    def test_duplicate_selected_id_fails_clearly(self) -> None:
+        with self.assertRaisesRegex(
+            AdClaimSelectionError,
+            "duplicate selected ad claim candidate ID: spec:playback_time",
+        ):
+            resolve_ad_claim_selection(
+                self.candidate_set(),
+                ["spec:playback_time", "spec:playback_time"],
+            )
+
+    def test_duplicate_available_candidate_id_fails_clearly(self) -> None:
+        candidate = self.candidate_set()[0]
+
+        with self.assertRaisesRegex(
+            DuplicateAdClaimCandidateError,
+            candidate.id,
+        ):
+            resolve_ad_claim_selection([candidate, candidate], [candidate.id])
+
+    def test_selection_returns_deep_copies_without_mutating_candidates(self) -> None:
+        evidence = ClaimEvidence(
+            raw_text="Playback: Up to 20 hours",
+            source_url="https://example.com/speaker",
+            extraction_method="manual",
+        )
+        candidates = generate_ad_claim_candidates(
+            sample_product(
+                specs=[
+                    ProductSpec(
+                        key="playback_time",
+                        label="Playback Time",
+                        value="up to 20 hours",
+                        evidence=evidence,
+                    )
+                ]
+            )
+        )
+        before = candidates[0].model_dump(mode="json")
+
+        selected = resolve_ad_claim_selection(candidates, [candidates[0].id])
+
+        self.assertEqual(selected[0], candidates[0])
+        self.assertIsNot(selected[0], candidates[0])
+        self.assertIsNot(selected[0].evidence, candidates[0].evidence)
+        self.assertEqual(candidates[0].model_dump(mode="json"), before)
+
+        selected[0].evidence.raw_text = "changed selection evidence"
+        self.assertEqual(
+            candidates[0].evidence.raw_text,
+            "Playback: Up to 20 hours",
+        )
+
+    def test_blank_or_non_string_selected_ids_fail_cleanly(self) -> None:
+        for selected_id in ("", "   ", 123):
+            with self.subTest(selected_id=selected_id):
+                with self.assertRaisesRegex(
+                    AdClaimSelectionError,
+                    "selected ad claim candidate IDs must be non-empty strings",
+                ):
+                    resolve_ad_claim_selection(
+                        self.candidate_set(),
+                        [selected_id],
+                    )
 
 
 if __name__ == "__main__":

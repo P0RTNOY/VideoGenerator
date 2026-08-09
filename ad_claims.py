@@ -1,7 +1,7 @@
 """Deterministic projection from researched products to selectable ad claims."""
 
 import re
-from typing import List, Literal, Optional, Set
+from typing import Dict, List, Literal, Optional, Sequence, Set
 
 from pydantic import Field
 
@@ -34,6 +34,10 @@ class AdClaimCandidate(ProductModel):
 
 class DuplicateAdClaimCandidateError(ValueError):
     """Raised when a Product cannot produce unique deterministic claim IDs."""
+
+
+class AdClaimSelectionError(ValueError):
+    """Raised when selected candidate IDs cannot be resolved safely."""
 
 
 def _format_primitive(value: object) -> str:
@@ -128,3 +132,40 @@ def generate_ad_claim_candidates(product: Product) -> List[AdClaimCandidate]:
         candidates.append(candidate)
 
     return candidates
+
+
+def resolve_ad_claim_selection(
+    candidates: Sequence[AdClaimCandidate],
+    selected_ids: Sequence[str],
+) -> List[AdClaimCandidate]:
+    """Resolve selected IDs in candidate order and return independent copies."""
+
+    candidates_by_id: Dict[str, AdClaimCandidate] = {}
+    for candidate in candidates:
+        if candidate.id in candidates_by_id:
+            raise DuplicateAdClaimCandidateError(
+                f"duplicate ad claim candidate ID: {candidate.id}"
+            )
+        candidates_by_id[candidate.id] = candidate
+
+    selected_id_set: Set[str] = set()
+    for selected_id in selected_ids:
+        if not isinstance(selected_id, str) or not selected_id.strip():
+            raise AdClaimSelectionError(
+                "selected ad claim candidate IDs must be non-empty strings"
+            )
+        if selected_id in selected_id_set:
+            raise AdClaimSelectionError(
+                f"duplicate selected ad claim candidate ID: {selected_id}"
+            )
+        if selected_id not in candidates_by_id:
+            raise AdClaimSelectionError(
+                f"unknown ad claim candidate ID: {selected_id}"
+            )
+        selected_id_set.add(selected_id)
+
+    return [
+        candidate.model_copy(deep=True)
+        for candidate in candidates
+        if candidate.id in selected_id_set
+    ]
