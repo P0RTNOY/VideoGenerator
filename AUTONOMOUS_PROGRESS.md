@@ -64,3 +64,16 @@
 - Design decision: JSON-LD images are admitted only from the selected Product/ProductGroup and selected variant; Open Graph images require exact product-name corroboration in `og:image:alt`.
 - Known limitation: Discovery does not scan arbitrary `<img>` elements, resolve separately referenced ImageObjects, inspect image bytes, download assets, or rank creative suitability.
 - Next selected feature: Deterministic product-image ranking using only validated metadata, if a conservative ranking policy can be defined without image inspection.
+
+## Feature 2.9 — Deterministic product image ranking
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Provide a stable metadata-only order and primary selection for researched Product images.
+- Main files: `product_images.py`, `tests/test_product_images.py`.
+- Tests added: 7 focused confidence, metadata-completeness, pixel-area, stable-order, empty-input, primary-selection, and mutation-isolation tests.
+- Total tests: 128 passing.
+- Real-world regression: The single researched Soundcore image ranks as the primary image without changing Product identity or any researched/ad claim.
+- Design decision: Rank by explicit confidence, then dimension completeness, then pixel area; retain source order for ties and return deep copies.
+- Known limitation: Ranking deliberately makes no aesthetic, angle, background, aspect-ratio, accessibility, or content-quality judgment.
+- Next selected feature: Stop for an owner decision before image downloading or visual suitability analysis, because those require network/storage policy and creative-ranking criteria.
