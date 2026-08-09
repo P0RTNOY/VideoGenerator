@@ -9,8 +9,10 @@ from ad_claims import (
     AdClaimCandidate,
     AdClaimSelectionError,
     DuplicateAdClaimCandidateError,
+    ProductAdClaimSelection,
     generate_ad_claim_candidates,
     resolve_ad_claim_selection,
+    resolve_product_ad_claim_selection,
 )
 from product import ClaimEvidence, Product, ProductFeature, ProductSpec
 
@@ -505,6 +507,111 @@ class AdClaimSelectionTests(unittest.TestCase):
                         self.candidate_set(),
                         [selected_id],
                     )
+
+
+class ProductAdClaimSelectionTests(unittest.TestCase):
+    def test_selection_model_round_trips_as_strict_json(self) -> None:
+        selection = ProductAdClaimSelection(
+            product_id="example-speaker",
+            selected_claim_ids=[
+                "spec:playback_time",
+                "feature:floating-design",
+            ],
+        )
+
+        restored = ProductAdClaimSelection.model_validate_json(
+            selection.model_dump_json()
+        )
+
+        self.assertEqual(restored, selection)
+        invalid = selection.model_dump()
+        invalid["campaign_id"] = "not-part-of-this-feature"
+        with self.assertRaises(ValidationError):
+            ProductAdClaimSelection.model_validate(invalid)
+
+    def test_selection_model_rejects_duplicate_or_blank_ids(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "must not contain duplicates"):
+            ProductAdClaimSelection(
+                product_id="example-speaker",
+                selected_claim_ids=["spec:weight", "spec:weight"],
+            )
+
+        for field_name, invalid_value in (
+            ("product_id", "   "),
+            ("selected_claim_ids", ["   "]),
+        ):
+            with self.subTest(field_name=field_name):
+                data = {
+                    "product_id": "example-speaker",
+                    "selected_claim_ids": ["spec:weight"],
+                    field_name: invalid_value,
+                }
+                with self.assertRaises(ValidationError):
+                    ProductAdClaimSelection.model_validate(data)
+
+    def test_product_bound_selection_resolves_existing_candidates(self) -> None:
+        product = sample_product(
+            specs=[
+                ProductSpec(
+                    key="playback_time",
+                    label="Playback Time",
+                    value="up to 20 hours",
+                )
+            ],
+            features=[ProductFeature(id="floating-design", name="Floating design")],
+        )
+        selection = ProductAdClaimSelection(
+            product_id=product.id,
+            selected_claim_ids=[
+                "feature:floating-design",
+                "spec:playback_time",
+            ],
+        )
+
+        selected = resolve_product_ad_claim_selection(product, selection)
+
+        self.assertEqual(
+            [candidate.id for candidate in selected],
+            ["spec:playback_time", "feature:floating-design"],
+        )
+
+    def test_product_bound_selection_rejects_product_mismatch(self) -> None:
+        product = sample_product()
+        selection = ProductAdClaimSelection(
+            product_id="different-product",
+            selected_claim_ids=[],
+        )
+
+        with self.assertRaisesRegex(
+            AdClaimSelectionError,
+            "selection product ID different-product does not match Product ID example-speaker",
+        ):
+            resolve_product_ad_claim_selection(product, selection)
+
+    def test_product_bound_empty_selection_is_valid(self) -> None:
+        product = sample_product()
+        selection = ProductAdClaimSelection(product_id=product.id)
+
+        self.assertEqual(
+            resolve_product_ad_claim_selection(product, selection),
+            [],
+        )
+
+    def test_product_bound_selection_does_not_mutate_product_or_selection(self) -> None:
+        product = sample_product(
+            features=[ProductFeature(id="floating-design", name="Floating design")]
+        )
+        selection = ProductAdClaimSelection(
+            product_id=product.id,
+            selected_claim_ids=["feature:floating-design"],
+        )
+        product_before = product.model_dump(mode="json")
+        selection_before = selection.model_dump(mode="json")
+
+        resolve_product_ad_claim_selection(product, selection)
+
+        self.assertEqual(product.model_dump(mode="json"), product_before)
+        self.assertEqual(selection.model_dump(mode="json"), selection_before)
 
 
 if __name__ == "__main__":

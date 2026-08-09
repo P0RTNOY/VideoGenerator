@@ -3,7 +3,7 @@
 import re
 from typing import Dict, List, Literal, Optional, Sequence, Set
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from product import (
     ClaimEvidence,
@@ -30,6 +30,20 @@ class AdClaimCandidate(ProductModel):
     verified: bool = False
     evidence: Optional[ClaimEvidence] = None
     context_text: Optional[NonEmptyStr] = None
+
+
+class ProductAdClaimSelection(ProductModel):
+    """Product-bound candidate IDs suitable for later Campaign composition."""
+
+    product_id: NonEmptyStr
+    selected_claim_ids: List[NonEmptyStr] = Field(default_factory=list)
+
+    @field_validator("selected_claim_ids")
+    @classmethod
+    def require_unique_claim_ids(cls, value: List[str]) -> List[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("selected_claim_ids must not contain duplicates")
+        return value
 
 
 class DuplicateAdClaimCandidateError(ValueError):
@@ -169,3 +183,20 @@ def resolve_ad_claim_selection(
         for candidate in candidates
         if candidate.id in selected_id_set
     ]
+
+
+def resolve_product_ad_claim_selection(
+    product: Product,
+    selection: ProductAdClaimSelection,
+) -> List[AdClaimCandidate]:
+    """Resolve a product-bound selection without storing derived claim data."""
+
+    if selection.product_id != product.id:
+        raise AdClaimSelectionError(
+            f"selection product ID {selection.product_id} "
+            f"does not match Product ID {product.id}"
+        )
+    return resolve_ad_claim_selection(
+        generate_ad_claim_candidates(product),
+        selection.selected_claim_ids,
+    )
