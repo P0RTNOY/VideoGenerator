@@ -1,0 +1,15 @@
+# Existing product experiments, generated media, and local secrets
+soundcore/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local environment files
+.env
+.env.*
+
+# macOS
+.DS_Store

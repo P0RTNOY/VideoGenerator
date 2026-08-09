@@ -1,0 +1,267 @@
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from pydantic import ValidationError
+
+from product import (
+    Product,
+    ProductFeature,
+    ProductImage,
+    ProductSource,
+    ProductSpec,
+    ProductVariant,
+    load_product,
+    save_product,
+)
+
+
+class ProductModelTests(unittest.TestCase):
+    def test_product_creation(self) -> None:
+        product = Product(
+            id="soundcore-select-4-go",
+            name="Select 4 Go",
+            brand="Soundcore",
+            category="Portable Bluetooth Speaker",
+        )
+
+        self.assertEqual(product.name, "Select 4 Go")
+        self.assertEqual(product.images, [])
+        self.assertEqual(product.specs, [])
+        self.assertEqual(product.features, [])
+        self.assertEqual(product.sources, [])
+
+    def test_nested_models_are_preserved(self) -> None:
+        product = Product(
+            id="soundcore-select-4-go-green-yellow",
+            name="Select 4 Go",
+            brand="Soundcore",
+            category="Portable Bluetooth Speaker",
+            variant=ProductVariant(
+                color="Green / Yellow",
+                model_number="manual-model-reference",
+            ),
+            images=[
+                ProductImage(
+                    id="primary",
+                    local_path="soundcore/primary.jpg",
+                    angle="front",
+                    width=1024,
+                    height=1536,
+                    confidence=0.9,
+                )
+            ],
+            specs=[
+                ProductSpec(
+                    key="sample_boolean",
+                    label="Sample Boolean",
+                    value=True,
+                )
+            ],
+            features=[
+                ProductFeature(
+                    id="manual-feature",
+                    name="Manual feature",
+                )
+            ],
+            sources=[
+                ProductSource(
+                    url="https://example.com/product",
+                    source_type="manual",
+                    domain="example.com",
+                )
+            ],
+        )
+
+        self.assertIsInstance(product.variant, ProductVariant)
+        self.assertIsInstance(product.images[0], ProductImage)
+        self.assertIsInstance(product.specs[0], ProductSpec)
+        self.assertIsInstance(product.features[0], ProductFeature)
+        self.assertIsInstance(product.sources[0], ProductSource)
+        self.assertFalse(product.specs[0].verified)
+        self.assertFalse(product.features[0].verified)
+
+    def test_spec_values_preserve_practical_primitive_types(self) -> None:
+        values = ["portable", 20, 1.5, True]
+
+        for index, value in enumerate(values):
+            with self.subTest(value=value):
+                spec = ProductSpec(
+                    key=f"sample_{index}",
+                    label=f"Sample {index}",
+                    value=value,
+                )
+                self.assertEqual(spec.value, value)
+                self.assertIs(type(spec.value), type(value))
+
+    def test_invalid_product_data_reports_all_field_errors(self) -> None:
+        with self.assertRaises(ValidationError) as context:
+            Product.model_validate(
+                {
+                    "id": "soundcore-select-4-go",
+                    "brand": "Soundcore",
+                    "category": "Portable Bluetooth Speaker",
+                    "images": [
+                        {
+                            "id": "primary",
+                            "confidence": 1.5,
+                            "width": 0,
+                        }
+                    ],
+                    "unexpected": "not allowed",
+                }
+            )
+
+        error_locations = {tuple(error["loc"]) for error in context.exception.errors()}
+        self.assertIn(("name",), error_locations)
+        self.assertIn(("images", 0, "confidence"), error_locations)
+        self.assertIn(("images", 0, "width"), error_locations)
+        self.assertIn(("unexpected",), error_locations)
+
+    def test_boolean_metadata_is_not_coerced_to_numeric_fields(self) -> None:
+        with self.assertRaises(ValidationError) as context:
+            Product.model_validate(
+                {
+                    "id": "soundcore-select-4-go",
+                    "name": "Select 4 Go",
+                    "brand": "Soundcore",
+                    "category": "Portable Bluetooth Speaker",
+                    "images": [
+                        {
+                            "id": "primary",
+                            "width": True,
+                            "height": False,
+                            "confidence": True,
+                        }
+                    ],
+                    "specs": [
+                        {
+                            "key": "sample",
+                            "label": "Sample",
+                            "value": True,
+                            "confidence": False,
+                        }
+                    ],
+                    "features": [
+                        {
+                            "id": "sample",
+                            "name": "Sample",
+                            "confidence": True,
+                        }
+                    ],
+                }
+            )
+
+        error_locations = {tuple(error["loc"]) for error in context.exception.errors()}
+        self.assertEqual(
+            error_locations,
+            {
+                ("images", 0, "width"),
+                ("images", 0, "height"),
+                ("images", 0, "confidence"),
+                ("specs", 0, "confidence"),
+                ("features", 0, "confidence"),
+            },
+        )
+
+
+class ProductPersistenceTests(unittest.TestCase):
+    def test_save_product_writes_human_readable_utf8_json(self) -> None:
+        product = Product(
+            id="cafe-speaker",
+            name="Café Speaker",
+            brand="Example",
+            category="Portable Speaker",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_path = Path(temporary_directory) / "product.json"
+
+            saved_path = save_product(product, output_path)
+            json_text = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(saved_path, output_path)
+        self.assertIn('\n  "id": "cafe-speaker"', json_text)
+        self.assertIn("Café Speaker", json_text)
+        self.assertTrue(json_text.endswith("\n"))
+        self.assertEqual(json.loads(json_text)["name"], "Café Speaker")
+
+    def test_load_product_restores_nested_model_types(self) -> None:
+        product_data = {
+            "id": "soundcore-select-4-go-green-yellow",
+            "name": "Select 4 Go",
+            "brand": "Soundcore",
+            "category": "Portable Bluetooth Speaker",
+            "variant": {"color": "Green / Yellow"},
+            "images": [{"id": "primary", "local_path": "soundcore/primary.jpg"}],
+            "specs": [{"key": "sample", "label": "Sample", "value": 2}],
+            "features": [{"id": "sample", "name": "Sample"}],
+            "sources": [
+                {
+                    "url": "https://example.com/product",
+                    "source_type": "manual",
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            input_path = Path(temporary_directory) / "product.json"
+            input_path.write_text(
+                json.dumps(product_data, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            loaded_product = load_product(input_path)
+
+        self.assertIsInstance(loaded_product, Product)
+        self.assertIsInstance(loaded_product.variant, ProductVariant)
+        self.assertIsInstance(loaded_product.images[0], ProductImage)
+        self.assertIsInstance(loaded_product.specs[0], ProductSpec)
+        self.assertIsInstance(loaded_product.features[0], ProductFeature)
+        self.assertIsInstance(loaded_product.sources[0], ProductSource)
+        self.assertEqual(loaded_product.specs[0].value, 2)
+        self.assertFalse(loaded_product.specs[0].verified)
+
+    def test_load_product_rejects_malformed_json_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            input_path = Path(temporary_directory) / "product.json"
+            input_path.write_text('{"id": "broken",', encoding="utf-8")
+
+            with self.assertRaises(ValidationError) as context:
+                load_product(input_path)
+
+        self.assertEqual(context.exception.errors()[0]["type"], "json_invalid")
+
+
+class ProductDemoTests(unittest.TestCase):
+    def test_demo_writes_a_loadable_manual_soundcore_product(self) -> None:
+        demo_path = Path(__file__).resolve().parents[1] / "demo_product.py"
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result = subprocess.run(
+                [sys.executable, str(demo_path)],
+                cwd=temporary_directory,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            output_path = Path(temporary_directory) / "product.json"
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output_path.is_file())
+            loaded_product = load_product(output_path)
+
+        self.assertEqual(loaded_product.brand, "Soundcore")
+        self.assertEqual(loaded_product.name, "Select 4 Go")
+        self.assertEqual(loaded_product.category, "Portable Bluetooth Speaker")
+        self.assertEqual(loaded_product.variant.color, "Green / Yellow")
+        self.assertEqual(loaded_product.specs, [])
+        self.assertEqual(loaded_product.features, [])
+        self.assertIn("Saved and loaded Soundcore Select 4 Go", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()
