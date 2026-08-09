@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Trail 8 | Example Audio</title>
+    <link rel="canonical" href="https://images.example/products/trail">
+    <meta property="og:image" content="https://cdn.images.example/group-primary.jpg?utm_source=share">
+    <meta property="og:image:alt" content="Example Audio Trail 8">
+    <meta property="og:image:width" content="800">
+    <meta property="og:image:height" content="600">
+    <meta property="og:image" content="https://cdn.images.example/unrelated-banner.jpg">
+    <meta property="og:image:alt" content="Example Audio seasonal sale">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "url": "https://images.example/products/trail",
+            "mainEntity": {"@id": "https://images.example/products/trail#green"}
+          },
+          {
+            "@type": "ProductGroup",
+            "url": "https://images.example/products/trail",
+            "name": "Example Audio Trail 8",
+            "brand": "Example Audio",
+            "category": "Portable Speakers",
+            "image": [
+              "https://cdn.images.example/group-primary.jpg",
+              {
+                "@type": "ImageObject",
+                "contentUrl": "/media/group-detail.jpg",
+                "width": "1200",
+                "height": 900
+              },
+              "ftp://images.example/invalid.jpg"
+            ],
+            "hasVariant": [
+              {"@id": "https://images.example/products/trail#green"},
+              {"@id": "https://images.example/products/trail#blue"}
+            ]
+          },
+          {
+            "@type": "Product",
+            "@id": "https://images.example/products/trail#green",
+            "url": "https://images.example/products/trail?variant=green",
+            "sku": "TRAIL-GREEN",
+            "color": "Green",
+            "image": {"url": "https://cdn.images.example/green.jpg"}
+          },
+          {
+            "@type": "Product",
+            "@id": "https://images.example/products/trail#blue",
+            "url": "https://images.example/products/trail?variant=blue",
+            "sku": "TRAIL-BLUE",
+            "color": "Blue",
+            "image": "https://cdn.images.example/blue.jpg"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body><main><h1>Example Audio Trail 8</h1></main></body>
+</html>

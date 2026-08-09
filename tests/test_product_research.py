@@ -767,6 +767,127 @@ class ProductGroupResearchTests(unittest.TestCase):
         self.assertIn("brand", str(context.exception))
 
 
+class ProductImageResearchTests(unittest.TestCase):
+    def test_selected_jsonld_entity_images_preserve_metadata_and_provenance(
+        self,
+    ) -> None:
+        source_url = "https://images.example/products/trail?variant=green"
+
+        product = product_research.research_product_from_html(
+            fixture_text("product_images.html"),
+            source_url,
+        )
+
+        self.assertEqual(len(product.images), 3)
+        self.assertEqual(
+            [image.url for image in product.images],
+            [
+                "https://cdn.images.example/group-primary.jpg",
+                "https://images.example/media/group-detail.jpg",
+                "https://cdn.images.example/green.jpg",
+            ],
+        )
+        self.assertEqual(product.images[0].source_type, "json_ld_product_image")
+        self.assertEqual(product.images[0].source_url, source_url)
+        self.assertEqual(product.images[0].confidence, 0.95)
+        self.assertEqual(product.images[1].width, 1200)
+        self.assertEqual(product.images[1].height, 900)
+        self.assertTrue(
+            all(image.id.startswith("image-") for image in product.images)
+        )
+
+    def test_selected_variant_image_does_not_leak_sibling_images(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_images.html"),
+            "https://images.example/products/trail?variant=green",
+        )
+
+        image_urls = {image.url for image in product.images}
+        self.assertIn("https://cdn.images.example/green.jpg", image_urls)
+        self.assertNotIn("https://cdn.images.example/blue.jpg", image_urls)
+
+    def test_ambiguous_group_uses_only_group_images(self) -> None:
+        html = fixture_text("product_images.html").replace(
+            '"mainEntity": {"@id": "https://images.example/products/trail#green"}',
+            '"headline": "No selected variant"',
+        )
+
+        product = product_research.research_product_from_html(
+            html,
+            "https://images.example/products/trail",
+        )
+
+        self.assertIsNone(product.variant)
+        self.assertNotIn(
+            "https://cdn.images.example/green.jpg",
+            {image.url for image in product.images},
+        )
+
+    def test_product_bound_open_graph_image_is_supported_and_deduplicated(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_images.html"),
+            "https://images.example/products/trail?variant=green",
+        )
+
+        primary = next(
+            image
+            for image in product.images
+            if image.url == "https://cdn.images.example/group-primary.jpg"
+        )
+
+        self.assertEqual(primary.source_type, "json_ld_product_image")
+        self.assertEqual(primary.confidence, 0.95)
+        self.assertEqual(primary.width, 800)
+        self.assertEqual(primary.height, 600)
+
+    def test_unbound_open_graph_and_invalid_image_urls_are_omitted(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_images.html"),
+            "https://images.example/products/trail?variant=green",
+        )
+
+        image_urls = {image.url for image in product.images}
+        self.assertNotIn(
+            "https://cdn.images.example/unrelated-banner.jpg",
+            image_urls,
+        )
+        self.assertTrue(all(url.startswith("https://") for url in image_urls))
+
+    def test_image_ids_are_stable_for_scheme_www_and_tracking_differences(
+        self,
+    ) -> None:
+        first = product_research.build_product_image(
+            "https://www.cdn.example/photo.jpg?utm_source=email",
+            "https://shop.example/product",
+            "json_ld_product_image",
+            0.95,
+        )
+        second = product_research.build_product_image(
+            "http://cdn.example/photo.jpg?fbclid=tracking",
+            "https://shop.example/product",
+            "json_ld_product_image",
+            0.95,
+        )
+
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertEqual(first.id, second.id)
+
+    def test_malformed_dimensions_are_omitted_without_losing_valid_image(self) -> None:
+        image = product_research.build_product_image(
+            "https://cdn.example/photo.jpg",
+            "https://shop.example/product",
+            "json_ld_product_image",
+            0.95,
+            width="wide",
+            height=-1,
+        )
+
+        self.assertIsNotNone(image)
+        self.assertIsNone(image.width)
+        self.assertIsNone(image.height)
+
+
 class ProductResearchFetchTests(unittest.TestCase):
     def test_fetch_uses_headers_timeout_redirects_and_preserves_final_url(self) -> None:
         research = product_research

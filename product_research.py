@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -17,6 +18,7 @@ from product import (
     ClaimEvidence,
     Product,
     ProductFeature,
+    ProductImage,
     ProductSource,
     ProductSpec,
     ProductVariant,
@@ -24,6 +26,7 @@ from product import (
 from product_identity import (
     canonicalize_product_name,
     generate_source_scoped_product_id,
+    normalize_identity_url,
     slugify_identifier,
     stable_variant_identity,
 )
@@ -35,6 +38,8 @@ CONFIDENCE_BY_SOURCE = {
     "structured_html_spec": 0.85,
     "feature_section": 0.75,
     "primary_product_claim_list": 0.65,
+    "json_ld_product_image": 0.95,
+    "open_graph_product_image": 0.80,
 }
 
 REQUEST_HEADERS = {
@@ -608,6 +613,179 @@ def _first_url_from_value(value: Any, base_url: str) -> Optional[str]:
             if normalized:
                 return normalized
     return None
+
+
+def _positive_image_dimension(value: Any) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    text = _clean_text(value)
+    if text and text.isdigit():
+        dimension = int(text)
+        return dimension if dimension > 0 else None
+    return None
+
+
+def build_product_image(
+    image_url: Any,
+    source_url: str,
+    source_type: str,
+    confidence: float,
+    width: Any = None,
+    height: Any = None,
+) -> Optional[ProductImage]:
+    """Build source-linked image metadata for one valid HTTP(S) asset."""
+
+    clean_url = _clean_text(image_url)
+    if not clean_url:
+        return None
+    absolute_url = urljoin(source_url, clean_url)
+    parts = urlsplit(absolute_url)
+    if (
+        parts.scheme.casefold() not in {"http", "https"}
+        or not parts.hostname
+        or parts.username is not None
+        or parts.password is not None
+    ):
+        return None
+    absolute_url = urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, parts.query, "")
+    )
+    try:
+        normalized_url = normalize_identity_url(absolute_url)
+    except ValueError:
+        return None
+    digest = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest()[:16]
+    return ProductImage(
+        id=f"image-{digest}",
+        url=absolute_url,
+        source_url=source_url,
+        source_type=source_type,
+        width=_positive_image_dimension(width),
+        height=_positive_image_dimension(height),
+        confidence=confidence,
+    )
+
+
+def _extract_jsonld_images(
+    product_data: Dict[str, Any],
+    source_url: str,
+) -> List[ProductImage]:
+    images: List[ProductImage] = []
+    for item in _as_list(product_data.get("image")):
+        if isinstance(item, dict):
+            image_url = (
+                item.get("contentUrl")
+                or item.get("url")
+                or item.get("thumbnailUrl")
+            )
+            if not image_url and _schema_type_matches(item.get("@type"), "ImageObject"):
+                image_url = item.get("@id")
+            width = item.get("width")
+            height = item.get("height")
+        else:
+            image_url = item
+            width = None
+            height = None
+        image = build_product_image(
+            image_url,
+            source_url,
+            "json_ld_product_image",
+            CONFIDENCE_BY_SOURCE["json_ld_product_image"],
+            width=width,
+            height=height,
+        )
+        if image:
+            images.append(image)
+    return images
+
+
+def _open_graph_image_entries(soup: BeautifulSoup) -> List[Dict[str, str]]:
+    entries: List[Dict[str, str]] = []
+    current: Optional[Dict[str, str]] = None
+    for meta in soup.find_all("meta"):
+        property_name = _clean_text(meta.get("property"))
+        if not property_name:
+            continue
+        normalized_property = property_name.casefold()
+        if normalized_property in {"og:image", "og:image:url", "og:image:secure_url"}:
+            content = _clean_text(meta.get("content"))
+            if content:
+                current = {"url": content}
+                entries.append(current)
+            continue
+        if current is None:
+            continue
+        key_by_property = {
+            "og:image:alt": "alt",
+            "og:image:width": "width",
+            "og:image:height": "height",
+        }
+        entry_key = key_by_property.get(normalized_property)
+        content = _clean_text(meta.get("content"))
+        if entry_key and content:
+            current[entry_key] = content
+    return entries
+
+
+def _extract_open_graph_images(
+    soup: BeautifulSoup,
+    source_url: str,
+    source_name: str,
+    product_name: str,
+    brand: str,
+) -> List[ProductImage]:
+    accepted_names = {
+        value.casefold()
+        for value in (
+            _clean_text(source_name),
+            _clean_text(product_name),
+            _clean_text(f"{brand} {product_name}"),
+        )
+        if value
+    }
+    images: List[ProductImage] = []
+    for entry in _open_graph_image_entries(soup):
+        alt = _clean_text(entry.get("alt"))
+        if not alt or alt.casefold() not in accepted_names:
+            continue
+        image = build_product_image(
+            entry.get("url"),
+            source_url,
+            "open_graph_product_image",
+            CONFIDENCE_BY_SOURCE["open_graph_product_image"],
+            width=entry.get("width"),
+            height=entry.get("height"),
+        )
+        if image:
+            images.append(image)
+    return images
+
+
+def _deduplicate_images(images: Sequence[ProductImage]) -> List[ProductImage]:
+    deduplicated: List[ProductImage] = []
+    indices: Dict[str, int] = {}
+    for image in images:
+        existing_index = indices.get(image.id)
+        if existing_index is None:
+            indices[image.id] = len(deduplicated)
+            deduplicated.append(image)
+            continue
+        existing = deduplicated[existing_index]
+        preferred = (
+            image
+            if (image.confidence or 0) > (existing.confidence or 0)
+            else existing
+        )
+        alternate = existing if preferred is image else image
+        deduplicated[existing_index] = preferred.model_copy(
+            update={
+                "width": preferred.width or alternate.width,
+                "height": preferred.height or alternate.height,
+            }
+        )
+    return deduplicated
 
 
 def _normalized_key(label: str) -> Optional[str]:
@@ -1823,6 +2001,22 @@ def research_product_from_html(html: str, source_url: str) -> Product:
             *primary_features,
         ]
     )
+    images = _deduplicate_images(
+        [
+            *(
+                image
+                for entity in jsonld_entities
+                for image in _extract_jsonld_images(entity, source_url)
+            ),
+            *_extract_open_graph_images(
+                soup,
+                source_url,
+                source_name,
+                name,
+                brand,
+            ),
+        ]
+    )
 
     canonical_url = _canonical_url(soup, source_url)
     entity_scope = "group" if is_product_group else "product"
@@ -1858,6 +2052,7 @@ def research_product_from_html(html: str, source_url: str) -> Product:
         category=category,
         description=description,
         variant=variant,
+        images=images,
         specs=specs,
         features=features,
         sources=_deduplicate_sources([source]),

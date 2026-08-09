@@ -51,3 +51,16 @@
 - Design decision: New research IDs use same-origin canonical or final URLs with explicit entity scope; legacy saved Product/selection pairs retain and resolve their existing IDs unchanged.
 - Known limitation: IDs remain source-scoped and are not reconciled across canonical URL changes or different retailers.
 - Next selected feature: Evaluate the smallest conservative source or asset discovery prerequisite without collapsing research, claim, selection, or campaign boundaries.
+
+## Feature 2.8 — Structured product image metadata
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Populate existing `ProductImage` records from product-bound structured metadata without downloading or ranking assets.
+- Main files: `product_research.py`, `tests/test_product_research.py`, and `tests/fixtures/product_images.html`.
+- Tests added: 7 focused JSON-LD/Open Graph admission, metadata, stable-ID, deduplication, malformed-input, and ProductGroup sibling-isolation regressions.
+- Total tests: 121 passing.
+- Real-world regression: The Soundcore page yielded one product-bound 800×600 Open Graph image with source provenance and confidence while retaining its normalized identity, four specs, three features, and seven ad candidate IDs.
+- Design decision: JSON-LD images are admitted only from the selected Product/ProductGroup and selected variant; Open Graph images require exact product-name corroboration in `og:image:alt`.
+- Known limitation: Discovery does not scan arbitrary `<img>` elements, resolve separately referenced ImageObjects, inspect image bytes, download assets, or rank creative suitability.
+- Next selected feature: Deterministic product-image ranking using only validated metadata, if a conservative ranking policy can be defined without image inspection.
