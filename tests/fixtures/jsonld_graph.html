@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Select Go | Example Audio</title>
+    <link rel="canonical" href="https://example.com/products/select-go">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://example.com/products/select-go#page",
+            "url": "https://example.com/products/select-go",
+            "mainEntity": {"@id": "https://example.com/products/select-go#main-product"}
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://example.com/"},
+              {"@type": "ListItem", "position": 2, "name": "Audio", "item": "https://example.com/audio"},
+              {"@type": "ListItem", "position": 3, "name": "Bluetooth Speakers", "item": "https://example.com/audio/bluetooth-speakers"},
+              {"@type": "ListItem", "position": 4, "name": "Select Go", "item": "https://example.com/products/select-go"}
+            ]
+          },
+          {
+            "@type": "Product",
+            "@id": "https://example.com/products/related#product",
+            "url": "https://example.com/products/related",
+            "name": "Related Deluxe Speaker",
+            "brand": {"name": "Example Audio"},
+            "description": "A related recommendation with more populated fields.",
+            "category": "Premium Speakers",
+            "sku": "RELATED-1",
+            "model": "Related Deluxe",
+            "color": "Black",
+            "size": "Large"
+          },
+          {
+            "@type": "Product",
+            "@id": "https://example.com/products/select-go#main-product",
+            "url": "https://example.com/products/select-go",
+            "mainEntityOfPage": {"@id": "https://example.com/products/select-go#page"},
+            "name": "Select Go",
+            "brand": {"name": "Example Audio"},
+            "sku": "SG-1",
+            "featureList": ["Compact design", "Easy controls"]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>Select Go</h1>
+      <section id="technical-details">
+        <h2>Technical details</h2>
+        <dl>
+          <dt>Battery Life</dt><dd>12 hours</dd>
+          <dt>Water Resistance</dt><dd>Yes</dd>
+        </dl>
+      </section>
+      <section id="faq">
+        <h2>Frequently asked questions</h2>
+        <dl>
+          <dt>Can I return it?</dt><dd>See the returns policy.</dd>
+        </dl>
+      </section>
+      <section id="order-details">
+        <h2>Order details</h2>
+        <dl>
+          <dt>Order Number</dt><dd>12345</dd>
+        </dl>
+      </section>
+    </main>
+  </body>
+</html>

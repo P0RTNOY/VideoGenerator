@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Position Speaker | Position Audio</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Product",
+            "url": "https://position.example/product",
+            "name": "Position Speaker",
+            "brand": "Position Audio"
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {"@type": "ListItem", "position": "1", "name": "Home", "item": "https://position.example/"},
+              {"@type": "ListItem", "position": 2, "name": "Audio", "item": "https://position.example/audio"},
+              {"@type": "ListItem", "position": "3", "name": "Portable Speakers", "item": "https://position.example/audio/portable"},
+              {
+                "@type": "ListItem",
+                "position": "10",
+                "name": "Current Item",
+                "item": {
+                  "url": "https://position.example/product",
+                  "@id": "https://position.example/not-current"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body><h1>Position Speaker</h1></body>
+</html>
