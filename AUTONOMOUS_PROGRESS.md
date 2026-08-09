@@ -25,3 +25,16 @@
 - Design decision: Selection resolution rejects unknown or duplicate IDs and returns deep copies in candidate source order.
 - Known limitation: The selected ID list is not yet bound to a product identity.
 - Next selected feature: A minimal typed product-bound claim selection, without a Campaign model or persistence.
+
+## Feature 2.6 — Product-bound ad claim selection
+
+- Branch: `feature/primary-product-claims`
+- Commit: `3e5173c9f98ca1642e6a4ba92772ce304f9ec64d`
+- Goal: Bind selected candidate IDs to one Product without creating Campaign persistence.
+- Main files: `ad_claims.py`, `tests/test_ad_claims.py`
+- Tests added: 6 focused model-validation, product-binding, resolution, and mutation-safety tests.
+- Total tests: 85 passing.
+- Real-world regression: A JSON-round-tripped Soundcore selection resolved the expected three candidates with confidence, verification state, and TWS context intact.
+- Design decision: Store only `product_id` and unique candidate IDs; regenerate selected claims from current Product research truth.
+- Known limitation: Selections do not snapshot historical claim wording or evidence revisions.
+- Next selected feature: None autonomously; remaining roadmap options require a material research-policy or broader domain-architecture decision.
