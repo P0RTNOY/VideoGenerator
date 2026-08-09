@@ -230,6 +230,123 @@ class ProductResearchExtractionTests(unittest.TestCase):
         self.assertEqual(product.category, "Portable Speakers")
 
 
+class ProductGroupResearchTests(unittest.TestCase):
+    def test_direct_product_group_uses_group_identity_and_its_only_variant(self) -> None:
+        source_url = "https://group.example/products/family-speaker"
+
+        product = product_research.research_product_from_html(
+            fixture_text("product_group_direct.html"),
+            source_url,
+        )
+
+        self.assertEqual(product.id, "group-audio-family-speaker-green-mini")
+        self.assertEqual(product.name, "Family Speaker")
+        self.assertEqual(product.brand, "Group Audio")
+        self.assertEqual(product.category, "Portable Speakers")
+        self.assertEqual(product.description, "A family of compact speakers.")
+        self.assertIsNotNone(product.variant)
+        self.assertEqual(product.variant.color, "Green")
+        self.assertEqual(product.variant.size, "Mini")
+        self.assertEqual(product.variant.sku, "FS-GREEN")
+        self.assertEqual(product.variant.model_number, "FS100")
+        self.assertEqual(product.sources[0].url, source_url)
+
+    def test_group_and_selected_variant_specs_and_features_are_deduplicated(self) -> None:
+        source_url = "https://group.example/products/family-speaker"
+
+        product = product_research.research_product_from_html(
+            fixture_text("product_group_direct.html"),
+            source_url,
+        )
+        specs = {spec.key: spec for spec in product.specs}
+        features = {feature.id: feature for feature in product.features}
+
+        self.assertEqual(set(specs), {"battery_life", "weight"})
+        self.assertEqual(specs["battery_life"].value, 10)
+        self.assertEqual(specs["battery_life"].unit, "hours")
+        self.assertEqual(specs["weight"].value, 200)
+        self.assertEqual(specs["weight"].unit, "g")
+        self.assertEqual(
+            set(features),
+            {"balanced-sound", "carry-loop", "simple-controls"},
+        )
+        self.assertEqual(features["carry-loop"].name, "Carry loop")
+        for spec in specs.values():
+            self.assertEqual(spec.source_url, source_url)
+            self.assertFalse(spec.verified)
+        for feature in features.values():
+            self.assertEqual(feature.source_url, source_url)
+            self.assertFalse(feature.verified)
+
+    def test_product_group_in_top_level_array_is_supported(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_group_array.html"),
+            "https://array-group.example/products/array-group-speaker",
+        )
+
+        self.assertEqual(product.name, "Array Group Speaker")
+        self.assertEqual(product.brand, "Array Group Audio")
+        self.assertEqual(product.category, "Desktop Speakers")
+        self.assertIsNone(product.variant)
+
+    def test_graph_product_group_selects_only_url_matching_variant(self) -> None:
+        source_url = (
+            "https://graph-group.example/products/graph-speaker?variant=green"
+        )
+
+        product = product_research.research_product_from_html(
+            fixture_text("product_group_graph_url.html"),
+            source_url,
+        )
+
+        self.assertEqual(product.name, "Graph Speaker")
+        self.assertEqual(product.brand, "Graph Audio")
+        self.assertEqual(product.category, "Wireless Speakers")
+        self.assertIsNotNone(product.variant)
+        self.assertEqual(product.variant.color, "Green")
+        self.assertEqual(product.variant.sku, "GRAPH-GREEN")
+        self.assertEqual(product.sources[0].url, source_url)
+
+    def test_main_entity_selects_referenced_variant_and_breadcrumb_category(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_group_main_entity.html"),
+            "https://entity-group.example/products/entity-speaker",
+        )
+
+        self.assertEqual(product.name, "Entity Speaker")
+        self.assertEqual(product.brand, "Entity Audio")
+        self.assertEqual(product.category, "Bluetooth Speakers")
+        self.assertIsNotNone(product.variant)
+        self.assertEqual(product.variant.color, "Green")
+        self.assertEqual(product.variant.sku, "ENTITY-GREEN")
+
+    def test_ambiguous_group_variants_do_not_leak_arbitrary_variant_data(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_group_ambiguous.html"),
+            "https://choice-group.example/products/choice-speaker",
+        )
+
+        self.assertEqual(product.id, "choice-audio-choice-speaker")
+        self.assertEqual(product.name, "Choice Speaker")
+        self.assertEqual(product.brand, "Choice Audio")
+        self.assertEqual(product.category, "Portable Speakers")
+        self.assertIsNone(product.variant)
+        self.assertEqual(product.specs, [])
+        self.assertEqual(
+            [feature.name for feature in product.features],
+            ["Shared controls"],
+        )
+
+    def test_product_group_missing_required_identity_fails_cleanly(self) -> None:
+        with self.assertRaises(product_research.ProductExtractionError) as context:
+            product_research.research_product_from_html(
+                fixture_text("product_group_missing_identity.html"),
+                "https://missing-group.example/products/incomplete",
+            )
+
+        self.assertIn("brand", str(context.exception))
+
+
 class ProductResearchFetchTests(unittest.TestCase):
     def test_fetch_uses_headers_timeout_redirects_and_preserves_final_url(self) -> None:
         research = product_research

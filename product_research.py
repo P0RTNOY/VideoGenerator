@@ -60,6 +60,12 @@ class FetchedPage:
     html: str
 
 
+@dataclass(frozen=True)
+class PageProductSelection:
+    entity: Dict[str, Any]
+    variant: Optional[Dict[str, Any]] = None
+
+
 def validate_product_url(url: str) -> str:
     """Return a clean HTTP(S) URL or raise a clear validation error."""
 
@@ -252,12 +258,113 @@ def _product_completeness(product_data: Dict[str, Any]) -> int:
     return sum(product_data.get(field) not in (None, "", [], {}) for field in useful_fields)
 
 
+def _jsonld_reference_ids(value: Any, base_url: str) -> Set[str]:
+    reference_ids: Set[str] = set()
+    for item in _as_list(value):
+        candidates: Sequence[Any]
+        if isinstance(item, dict):
+            candidates = (item.get("@id"), item.get("url"))
+        else:
+            candidates = (item,)
+        for candidate in candidates:
+            cleaned = _clean_text(candidate)
+            if cleaned:
+                reference_ids.add(urljoin(base_url, cleaned))
+    return reference_ids
+
+
+def _product_group_variants(
+    group: Dict[str, Any],
+    products: Sequence[Dict[str, Any]],
+    page_url: str,
+) -> List[Dict[str, Any]]:
+    products_by_reference: Dict[str, List[Dict[str, Any]]] = {}
+    for product in products:
+        for reference in _jsonld_reference_ids(product, page_url):
+            products_by_reference.setdefault(reference, []).append(product)
+
+    variants: List[Dict[str, Any]] = []
+    seen_object_ids: Set[int] = set()
+
+    def add_variant(candidate: Dict[str, Any]) -> None:
+        object_id = id(candidate)
+        if object_id in seen_object_ids:
+            return
+        seen_object_ids.add(object_id)
+        variants.append(candidate)
+
+    for item in _as_list(group.get("hasVariant")):
+        if isinstance(item, dict) and _schema_type_matches(item.get("@type"), "Product"):
+            add_variant(item)
+        for reference in _jsonld_reference_ids(item, page_url):
+            for product in products_by_reference.get(reference, []):
+                add_variant(product)
+    return variants
+
+
+def _page_identity_score(
+    candidate: Dict[str, Any],
+    page_url: str,
+    page_urls: Set[str],
+    main_entity_refs: Set[str],
+    embedded_main_entity_ids: Set[int],
+    match_id_to_page: bool = True,
+) -> int:
+    identity_score = 0
+    candidate_urls = set(_urls_from_value(candidate.get("url"), page_url))
+    if match_id_to_page:
+        candidate_urls.update(_urls_from_value(candidate.get("@id"), page_url))
+    if candidate_urls & page_urls:
+        identity_score += 4
+
+    main_entity_page_urls = _urls_from_value(
+        candidate.get("mainEntityOfPage"),
+        page_url,
+    )
+    if main_entity_page_urls & page_urls:
+        identity_score += 4
+    if _jsonld_reference_ids(candidate, page_url) & main_entity_refs:
+        identity_score += 3
+    if id(candidate) in embedded_main_entity_ids:
+        identity_score += 3
+    return identity_score
+
+
+def _select_group_variant(
+    variants: Sequence[Dict[str, Any]],
+    page_url: str,
+    page_urls: Set[str],
+    main_entity_refs: Set[str],
+    embedded_main_entity_ids: Set[int],
+) -> Optional[Dict[str, Any]]:
+    if len(variants) == 1:
+        return variants[0]
+    if len(variants) < 2:
+        return None
+
+    identified_variants = [
+        variant
+        for variant in variants
+        if _page_identity_score(
+            variant,
+            page_url,
+            page_urls,
+            main_entity_refs,
+            embedded_main_entity_ids,
+            match_id_to_page=False,
+        )
+        > 0
+    ]
+    return identified_variants[0] if len(identified_variants) == 1 else None
+
+
 def _select_page_product(
     documents: Sequence[Any],
     soup: BeautifulSoup,
     page_url: str,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[PageProductSelection]:
     products: List[Dict[str, Any]] = []
+    product_groups: List[Dict[str, Any]] = []
     main_entity_refs: Set[str] = set()
     embedded_main_entity_ids: Set[int] = set()
 
@@ -265,12 +372,16 @@ def _select_page_product(
         for node in _walk_json(document):
             if _schema_type_matches(node.get("@type"), "Product"):
                 products.append(node)
+            if _schema_type_matches(node.get("@type"), "ProductGroup"):
+                product_groups.append(node)
             for main_entity in _as_list(node.get("mainEntity")):
-                main_entity_refs.update(_urls_from_value(main_entity, page_url))
+                main_entity_refs.update(
+                    _jsonld_reference_ids(main_entity, page_url)
+                )
                 if isinstance(main_entity, dict):
                     embedded_main_entity_ids.add(id(main_entity))
 
-    if not products:
+    if not products and not product_groups:
         return None
 
     page_urls = {
@@ -282,27 +393,55 @@ def _select_page_product(
         if normalized
     }
 
-    def score(candidate: Dict[str, Any]) -> Tuple[int, int]:
-        identity_score = 0
-        candidate_urls = set()
-        candidate_urls.update(_urls_from_value(candidate.get("url"), page_url))
-        candidate_urls.update(_urls_from_value(candidate.get("@id"), page_url))
-        if candidate_urls & page_urls:
-            identity_score += 4
+    variants_by_group_id = {
+        id(group): _product_group_variants(group, products, page_url)
+        for group in product_groups
+    }
+    linked_variant_ids = {
+        id(variant)
+        for variants in variants_by_group_id.values()
+        for variant in variants
+    }
+    candidates = [
+        *product_groups,
+        *(product for product in products if id(product) not in linked_variant_ids),
+    ]
 
-        main_entity_page_urls = _urls_from_value(
-            candidate.get("mainEntityOfPage"),
+    def score(candidate: Dict[str, Any]) -> Tuple[int, int]:
+        identity_score = _page_identity_score(
+            candidate,
             page_url,
+            page_urls,
+            main_entity_refs,
+            embedded_main_entity_ids,
         )
-        if main_entity_page_urls & page_urls:
-            identity_score += 4
-        if candidate_urls & main_entity_refs:
-            identity_score += 3
-        if id(candidate) in embedded_main_entity_ids:
-            identity_score += 3
+        if _schema_type_matches(candidate.get("@type"), "ProductGroup"):
+            variant_scores = [
+                _page_identity_score(
+                    variant,
+                    page_url,
+                    page_urls,
+                    main_entity_refs,
+                    embedded_main_entity_ids,
+                    match_id_to_page=False,
+                )
+                for variant in variants_by_group_id[id(candidate)]
+            ]
+            if variant_scores:
+                identity_score = max(identity_score, max(variant_scores))
         return identity_score, _product_completeness(candidate)
 
-    return max(products, key=score)
+    selected_entity = max(candidates, key=score)
+    selected_variant = None
+    if _schema_type_matches(selected_entity.get("@type"), "ProductGroup"):
+        selected_variant = _select_group_variant(
+            variants_by_group_id[id(selected_entity)],
+            page_url,
+            page_urls,
+            main_entity_refs,
+            embedded_main_entity_ids,
+        )
+    return PageProductSelection(entity=selected_entity, variant=selected_variant)
 
 
 def _text_from_structured_value(value: Any) -> Optional[str]:
@@ -831,24 +970,45 @@ def research_product_from_html(html: str, source_url: str) -> Product:
 
     soup = BeautifulSoup(html, "html.parser")
     documents = _load_jsonld_documents(soup)
-    product_data = _select_page_product(documents, soup, source_url) or {}
+    selection = _select_page_product(documents, soup, source_url)
+    page_entity_data = selection.entity if selection else {}
+    is_product_group = _schema_type_matches(
+        page_entity_data.get("@type"),
+        "ProductGroup",
+    )
+    selected_variant_data = (
+        selection.variant or {}
+        if selection and is_product_group
+        else page_entity_data
+    )
+    identity_fallback_data = selected_variant_data if is_product_group else {}
 
-    name = _text_from_structured_value(product_data.get("name")) or _meta_content(
-        soup,
-        ("product:name", "og:title", "twitter:title"),
+    name = (
+        _text_from_structured_value(page_entity_data.get("name"))
+        or _text_from_structured_value(identity_fallback_data.get("name"))
+        or _meta_content(
+            soup,
+            ("product:name", "og:title", "twitter:title"),
+        )
     )
-    brand = _text_from_structured_value(product_data.get("brand")) or _meta_content(
-        soup,
-        ("product:brand", "og:brand", "brand"),
+    brand = (
+        _text_from_structured_value(page_entity_data.get("brand"))
+        or _text_from_structured_value(identity_fallback_data.get("brand"))
+        or _meta_content(
+            soup,
+            ("product:brand", "og:brand", "brand"),
+        )
     )
-    description = _text_from_structured_value(
-        product_data.get("description")
-    ) or _meta_content(
-        soup,
-        ("og:description", "twitter:description", "description"),
+    description = (
+        _text_from_structured_value(page_entity_data.get("description"))
+        or _text_from_structured_value(identity_fallback_data.get("description"))
+        or _meta_content(
+            soup,
+            ("og:description", "twitter:description", "description"),
+        )
     )
     category = _text_from_structured_value(
-        product_data.get("category")
+        page_entity_data.get("category")
     ) or _meta_content(
         soup,
         ("product:category", "og:category", "category"),
@@ -890,14 +1050,14 @@ def research_product_from_html(html: str, source_url: str) -> Product:
             + ", ".join(missing)
         )
 
-    model_number = _text_from_structured_value(product_data.get("model"))
+    model_number = _text_from_structured_value(selected_variant_data.get("model"))
     if not model_number:
-        model_number = _text_from_structured_value(product_data.get("mpn"))
+        model_number = _text_from_structured_value(selected_variant_data.get("mpn"))
     variant_values = {
-        "color": _text_from_structured_value(product_data.get("color")),
-        "size": _text_from_structured_value(product_data.get("size")),
+        "color": _text_from_structured_value(selected_variant_data.get("color")),
+        "size": _text_from_structured_value(selected_variant_data.get("size")),
         "model_number": model_number,
-        "sku": _text_from_structured_value(product_data.get("sku")),
+        "sku": _text_from_structured_value(selected_variant_data.get("sku")),
     }
     variant = (
         ProductVariant(**variant_values)
@@ -914,16 +1074,27 @@ def research_product_from_html(html: str, source_url: str) -> Product:
         title=title,
     )
 
+    jsonld_entities = [page_entity_data]
+    if selected_variant_data and selected_variant_data is not page_entity_data:
+        jsonld_entities.append(selected_variant_data)
     specs = _deduplicate_specs(
         [
-            *_extract_jsonld_specs(product_data, source_url),
+            *(
+                spec
+                for entity in jsonld_entities
+                for spec in _extract_jsonld_specs(entity, source_url)
+            ),
             *_extract_table_specs(soup, source_url),
             *_extract_definition_specs(soup, source_url),
         ]
     )
     features = _deduplicate_features(
         [
-            *_extract_jsonld_features(product_data, source_url),
+            *(
+                feature
+                for entity in jsonld_entities
+                for feature in _extract_jsonld_features(entity, source_url)
+            ),
             *_extract_html_features(soup, source_url),
         ]
     )

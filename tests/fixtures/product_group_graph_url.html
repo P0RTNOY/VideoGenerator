@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Graph Speaker | Graph Audio</title>
+    <link rel="canonical" href="https://graph-group.example/products/graph-speaker">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://graph-group.example/products/graph-speaker#page",
+            "url": "https://graph-group.example/products/graph-speaker",
+            "mainEntity": {"@id": "https://graph-group.example/products/graph-speaker#group"}
+          },
+          {
+            "@type": "ProductGroup",
+            "@id": "https://graph-group.example/products/graph-speaker#group",
+            "url": "https://graph-group.example/products/graph-speaker",
+            "name": "Graph Speaker",
+            "brand": "Graph Audio",
+            "category": "Wireless Speakers",
+            "hasVariant": [
+              {
+                "@type": "Product",
+                "url": "https://graph-group.example/products/graph-speaker?variant=green",
+                "color": "Green",
+                "sku": "GRAPH-GREEN"
+              },
+              {
+                "@type": "Product",
+                "url": "https://graph-group.example/products/graph-speaker?variant=blue",
+                "color": "Blue",
+                "sku": "GRAPH-BLUE"
+              }
+            ]
+          },
+          {
+            "@type": "Product",
+            "url": "https://graph-group.example/products/unrelated",
+            "name": "Unrelated Complete Speaker",
+            "brand": "Other Audio",
+            "category": "Other Speakers",
+            "description": "A more complete but unrelated product.",
+            "sku": "OTHER-1",
+            "color": "Black"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body><h1>Graph Speaker</h1></body>
+</html>

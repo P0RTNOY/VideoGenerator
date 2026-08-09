@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Entity Speaker | Entity Audio</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "url": "https://entity-group.example/products/entity-speaker",
+            "mainEntity": {"@id": "https://entity-group.example/products/entity-speaker#green"}
+          },
+          {
+            "@type": "ProductGroup",
+            "url": "https://entity-group.example/products/entity-speaker",
+            "name": "Entity Speaker",
+            "brand": "Entity Audio",
+            "hasVariant": [
+              {"@id": "https://entity-group.example/products/entity-speaker#green"},
+              {"@id": "https://entity-group.example/products/entity-speaker#blue"}
+            ]
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://entity-group.example/"},
+              {"@type": "ListItem", "position": 2, "name": "Audio", "item": "https://entity-group.example/audio"},
+              {"@type": "ListItem", "position": 3, "name": "Bluetooth Speakers", "item": "https://entity-group.example/audio/bluetooth"},
+              {"@type": "ListItem", "position": 4, "name": "Entity Speaker", "item": "https://entity-group.example/products/entity-speaker"}
+            ]
+          },
+          {
+            "@type": "Product",
+            "@id": "https://entity-group.example/products/entity-speaker#green",
+            "color": "Green",
+            "sku": "ENTITY-GREEN"
+          },
+          {
+            "@type": "Product",
+            "@id": "https://entity-group.example/products/entity-speaker#blue",
+            "color": "Blue",
+            "sku": "ENTITY-BLUE"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body><h1>Entity Speaker</h1></body>
+</html>
