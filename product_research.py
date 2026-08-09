@@ -21,6 +21,12 @@ from product import (
     ProductSpec,
     ProductVariant,
 )
+from product_identity import (
+    canonicalize_product_name,
+    generate_source_scoped_product_id,
+    slugify_identifier,
+    stable_variant_identity,
+)
 
 
 CONFIDENCE_BY_SOURCE = {
@@ -582,9 +588,7 @@ def generate_product_id(
     parts = [brand, name]
     if variant:
         parts.extend(value for value in (variant.color, variant.size) if value)
-    normalized = unicodedata.normalize("NFKD", " ".join(parts))
-    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
-    slug = re.sub(r"[^a-z0-9]+", "-", ascii_text.casefold()).strip("-")
+    slug = slugify_identifier(" ".join(parts))
     if not slug:
         raise ProductExtractionError("Could not generate a product ID from page identity.")
     return slug
@@ -921,7 +925,7 @@ def _build_feature(
     clean_name = _clean_text(name)
     if not clean_name:
         return None
-    feature_id = generate_product_id("", clean_name)
+    feature_id = slugify_identifier(clean_name)
     return ProductFeature(
         id=feature_id,
         name=clean_name,
@@ -1680,7 +1684,7 @@ def research_product_from_html(html: str, source_url: str) -> Product:
     )
     identity_fallback_data = selected_variant_data if is_product_group else {}
 
-    name = (
+    source_name = (
         _text_from_structured_value(page_entity_data.get("name"))
         or _text_from_structured_value(identity_fallback_data.get("name"))
         or _meta_content(
@@ -1695,6 +1699,22 @@ def research_product_from_html(html: str, source_url: str) -> Product:
             soup,
             ("product:brand", "og:brand", "brand"),
         )
+    )
+    name = (
+        canonicalize_product_name(
+            source_name,
+            brand,
+            corroborating_names=tuple(
+                value
+                for value in (
+                    _clean_text(heading.get_text(" ", strip=True))
+                    for heading in soup.find_all("h1")
+                )
+                if value
+            ),
+        )
+        if source_name and brand
+        else source_name
     )
     description = (
         _text_from_structured_value(page_entity_data.get("description"))
@@ -1804,8 +1824,35 @@ def research_product_from_html(html: str, source_url: str) -> Product:
         ]
     )
 
+    canonical_url = _canonical_url(soup, source_url)
+    entity_scope = "group" if is_product_group else "product"
+    variant_signal = None
+    if is_product_group and selection and selection.variant:
+        group_url = _first_url_from_value(
+            page_entity_data.get("url"),
+            source_url,
+        )
+        variant_signal = stable_variant_identity(
+            selection.variant,
+            source_url,
+            group_url=group_url or canonical_url or source_url,
+        )
+        if variant_signal:
+            entity_scope = "variant"
+
+    try:
+        product_id = generate_source_scoped_product_id(
+            source_url,
+            entity_scope,
+            canonical_url=canonical_url,
+            variant_signal=variant_signal,
+        )
+    except ValueError as error:
+        raise ProductExtractionError(str(error)) from error
+
     return Product(
-        id=generate_product_id(brand, name, variant),
+        id=product_id,
+        source_name=source_name,
         name=name,
         brand=brand,
         category=category,

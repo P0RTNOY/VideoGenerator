@@ -575,6 +575,76 @@ class ProductAdClaimSelectionTests(unittest.TestCase):
             ["spec:playback_time", "feature:floating-design"],
         )
 
+    def test_legacy_product_and_selection_pair_continue_to_resolve(self) -> None:
+        product = Product.model_validate(
+            {
+                "id": "legacy-name-derived-id",
+                "name": "Legacy Speaker",
+                "brand": "Example",
+                "category": "Speakers",
+                "features": [
+                    {"id": "floating-design", "name": "Floating design"}
+                ],
+            }
+        )
+        selection = ProductAdClaimSelection(
+            product_id="legacy-name-derived-id",
+            selected_claim_ids=["feature:floating-design"],
+        )
+
+        selected = resolve_product_ad_claim_selection(product, selection)
+
+        self.assertEqual([claim.id for claim in selected], ["feature:floating-design"])
+
+    def test_new_product_bound_selection_uses_source_scoped_product_id(self) -> None:
+        product = sample_product().model_copy(
+            update={"id": "shop-example-product-products-trail"}
+        )
+        selection = ProductAdClaimSelection(
+            product_id=product.id,
+            selected_claim_ids=[],
+        )
+
+        self.assertEqual(selection.product_id, "shop-example-product-products-trail")
+
+    def test_existing_claim_candidate_ids_remain_unchanged(self) -> None:
+        product = sample_product(
+            specs=[
+                ProductSpec(
+                    key="water_resistance",
+                    label="Water Resistance",
+                    value="IP67",
+                ),
+                ProductSpec(
+                    key="playback_time",
+                    label="Playback Time",
+                    value="up to 20 hours",
+                ),
+            ],
+            features=[
+                ProductFeature(id="floating-design", name="Floating design"),
+                ProductFeature(
+                    id="included-carrying-strap",
+                    name="Included carrying strap",
+                ),
+                ProductFeature(
+                    id="true-wireless-stereo",
+                    name="True Wireless Stereo",
+                ),
+            ],
+        )
+
+        self.assertEqual(
+            [candidate.id for candidate in generate_ad_claim_candidates(product)],
+            [
+                "spec:water_resistance",
+                "spec:playback_time",
+                "feature:floating-design",
+                "feature:included-carrying-strap",
+                "feature:true-wireless-stereo",
+            ],
+        )
+
     def test_product_bound_selection_rejects_product_mismatch(self) -> None:
         product = sample_product()
         selection = ProductAdClaimSelection(

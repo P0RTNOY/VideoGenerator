@@ -87,6 +87,7 @@ class ProductSource(ProductModel):
 
 class Product(ProductModel):
     id: NonEmptyStr
+    source_name: Optional[NonEmptyStr] = None
     name: NonEmptyStr
     brand: NonEmptyStr
     category: NonEmptyStr

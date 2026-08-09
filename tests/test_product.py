@@ -371,6 +371,36 @@ class ProductPersistenceTests(unittest.TestCase):
         self.assertIsNone(loaded_product.features[0].evidence)
         self.assertFalse(loaded_product.specs[0].verified)
 
+    def test_legacy_product_json_without_source_name_still_loads(self) -> None:
+        product = Product.model_validate(
+            {
+                "id": "legacy-speaker",
+                "name": "Legacy Speaker",
+                "brand": "Example",
+                "category": "Speakers",
+            }
+        )
+
+        self.assertEqual(product.name, "Legacy Speaker")
+        self.assertIsNone(product.source_name)
+
+    def test_source_and_canonical_names_round_trip_independently(self) -> None:
+        product = Product(
+            id="example-product-products-trail-7",
+            source_name="Example Trail 7 | Outdoor Bluetooth Speaker",
+            name="Trail 7",
+            brand="Example",
+            category="Portable Speakers",
+        )
+
+        restored = Product.model_validate_json(product.model_dump_json())
+
+        self.assertEqual(
+            restored.source_name,
+            "Example Trail 7 | Outdoor Bluetooth Speaker",
+        )
+        self.assertEqual(restored.name, "Trail 7")
+
     def test_load_product_rejects_malformed_json_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             input_path = Path(temporary_directory) / "product.json"

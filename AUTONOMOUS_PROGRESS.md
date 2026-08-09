@@ -38,3 +38,16 @@
 - Design decision: Store only `product_id` and unique candidate IDs; regenerate selected claims from current Product research truth.
 - Known limitation: Selections do not snapshot historical claim wording or evidence revisions.
 - Next selected feature: None autonomously; remaining roadmap options require a material research-policy or broader domain-architecture decision.
+
+## Feature 2.7 — Product identity normalization
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Separate conservative product display names from deterministic source-scoped identity.
+- Main files: `product_identity.py`, `product.py`, `product_research.py`, identity and compatibility tests, and one generic fixture.
+- Tests added: 29 focused name-normalization, URL identity, variant-scope, persistence, selection-compatibility, claim-ID, and integration regressions.
+- Total tests: 114 passing.
+- Real-world regression: The Soundcore page produced `source_name` with its source SEO title, canonical name `Select 4 Go`, group ID `soundcore-com-group-products-a31x1021`, no arbitrary variant, and the same four specs, three features, evidence methods, and seven ad candidate IDs.
+- Design decision: New research IDs use same-origin canonical or final URLs with explicit entity scope; legacy saved Product/selection pairs retain and resolve their existing IDs unchanged.
+- Known limitation: IDs remain source-scoped and are not reconciled across canonical URL changes or different retailers.
+- Next selected feature: Evaluate the smallest conservative source or asset discovery prerequisite without collapsing research, claim, selection, or campaign boundaries.

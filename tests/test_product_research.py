@@ -45,7 +45,8 @@ class ProductResearchIdentityTests(unittest.TestCase):
             source_url,
         )
 
-        self.assertEqual(product.id, "acme-audio-trail-speaker-forest-green")
+        self.assertEqual(product.id, "shop-example-product-products-trail-speaker")
+        self.assertEqual(product.source_name, "Trail Speaker")
         self.assertEqual(product.name, "Trail Speaker")
         self.assertEqual(product.brand, "Acme Audio")
         self.assertEqual(product.category, "Portable Speakers")
@@ -602,7 +603,11 @@ class ProductGroupResearchTests(unittest.TestCase):
             source_url,
         )
 
-        self.assertEqual(product.id, "group-audio-family-speaker-green-mini")
+        self.assertEqual(
+            product.id,
+            "group-example-variant-products-family-speaker-sku-fs-green",
+        )
+        self.assertEqual(product.source_name, "Family Speaker")
         self.assertEqual(product.name, "Family Speaker")
         self.assertEqual(product.brand, "Group Audio")
         self.assertEqual(product.category, "Portable Speakers")
@@ -691,7 +696,10 @@ class ProductGroupResearchTests(unittest.TestCase):
             "https://choice-group.example/products/choice-speaker",
         )
 
-        self.assertEqual(product.id, "choice-audio-choice-speaker")
+        self.assertEqual(
+            product.id,
+            "choice-group-example-group-products-choice-speaker",
+        )
         self.assertEqual(product.name, "Choice Speaker")
         self.assertEqual(product.brand, "Choice Audio")
         self.assertEqual(product.category, "Portable Speakers")
@@ -701,6 +709,53 @@ class ProductGroupResearchTests(unittest.TestCase):
             [feature.name for feature in product.features],
             ["Shared controls"],
         )
+
+        changed_siblings = fixture_text("product_group_ambiguous.html").replace(
+            "CHOICE-GREEN",
+            "REPLACED-GREEN",
+        ).replace("CHOICE-BLUE", "REPLACED-BLUE")
+        changed_product = product_research.research_product_from_html(
+            changed_siblings,
+            "https://choice-group.example/products/choice-speaker",
+        )
+        self.assertEqual(changed_product.id, product.id)
+
+    def test_generic_seo_group_normalizes_name_without_selecting_a_sibling(self) -> None:
+        source_url = "https://audio.example/products/t4g?utm_source=review"
+
+        product = product_research.research_product_from_html(
+            fixture_text("product_identity_seo_group.html"),
+            source_url,
+        )
+
+        self.assertEqual(
+            product.source_name,
+            "Example Audio Trail 4 Go | Waterproof Portable Speaker",
+        )
+        self.assertEqual(product.name, "Trail 4 Go")
+        self.assertEqual(product.brand, "Example Audio")
+        self.assertEqual(product.id, "audio-example-group-products-t4g")
+        self.assertIsNone(product.variant)
+
+    def test_same_source_identity_is_stable_across_seo_name_changes(self) -> None:
+        original = fixture_text("product_identity_seo_group.html")
+        changed = original.replace(
+            "Example Audio Trail 4 Go | Waterproof Portable Speaker",
+            "Example Audio Trail 4 Go | New Campaign Copy",
+        )
+        source_url = "https://audio.example/products/t4g?utm_campaign=spring"
+
+        original_product = product_research.research_product_from_html(
+            original,
+            source_url,
+        )
+        changed_product = product_research.research_product_from_html(
+            changed,
+            source_url,
+        )
+
+        self.assertEqual(original_product.id, changed_product.id)
+        self.assertEqual(original_product.name, changed_product.name)
 
     def test_product_group_missing_required_identity_fails_cleanly(self) -> None:
         with self.assertRaises(product_research.ProductExtractionError) as context:
