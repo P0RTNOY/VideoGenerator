@@ -18,11 +18,14 @@ from product_image_eligibility import ProductImageEligibilityRequirements
 from product_image_sets import build_verified_product_image_set
 from product_images import rank_product_images
 from product_reference_sheets import (
+    MAX_REFERENCE_SHEET_BYTES,
     NoEligibleReferenceImagesError,
     ProductReferenceSheet,
     ProductReferenceSheetPolicy,
     ReferenceSheetFilesystemError,
+    ReferenceSheetIntegrityError,
     build_product_reference_sheet,
+    verify_product_reference_sheet,
 )
 
 
@@ -685,6 +688,172 @@ class ProductReferenceSheetFailureTests(unittest.TestCase):
                     storage_root=root / "products",
                 )
 
+
+class ProductReferenceSheetIntegrityTests(unittest.TestCase):
+    def build_sheet(self, root: Path) -> ProductReferenceSheet:
+        product, manifest, _ = image_bundle(root, 1)
+        return build_product_reference_sheet(
+            product,
+            manifest,
+            storage_root=root / "products",
+        )
+
+    def test_valid_sheet_reverifies_and_returns_an_isolated_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sheet = self.build_sheet(Path(temporary_directory))
+            expected_byte_size = len(Path(sheet.local_path).read_bytes())
+
+            verified = verify_product_reference_sheet(sheet)
+
+        self.assertEqual(verified, sheet)
+        self.assertIsNot(verified, sheet)
+        self.assertEqual(sheet.byte_size, expected_byte_size)
+
+    def test_missing_or_non_file_path_fails_clearly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            sheet = self.build_sheet(root)
+            missing = sheet.model_copy(
+                update={"local_path": str(root / "missing.png")}
+            )
+            directory = root / "directory.png"
+            directory.mkdir()
+            non_file = sheet.model_copy(update={"local_path": str(directory)})
+
+            for candidate in (missing, non_file):
+                with self.subTest(path=candidate.local_path):
+                    with self.assertRaisesRegex(
+                        ReferenceSheetIntegrityError,
+                        "regular file",
+                    ):
+                        verify_product_reference_sheet(candidate)
+
+    def test_symbolic_link_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            sheet = self.build_sheet(root)
+            link = root / "linked-sheet.png"
+            link.symlink_to(sheet.local_path)
+            linked = sheet.model_copy(update={"local_path": str(link)})
+
+            with self.assertRaisesRegex(
+                ReferenceSheetIntegrityError,
+                "symbolic link",
+            ):
+                verify_product_reference_sheet(linked)
+
+    def test_recorded_byte_size_mismatch_is_detected_before_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sheet = self.build_sheet(Path(temporary_directory))
+            path = Path(sheet.local_path)
+            path.write_bytes(path.read_bytes() + b"changed")
+
+            with self.assertRaisesRegex(
+                ReferenceSheetIntegrityError,
+                "byte size",
+            ):
+                verify_product_reference_sheet(sheet)
+
+    def test_sha256_mismatch_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sheet = self.build_sheet(Path(temporary_directory))
+            path = Path(sheet.local_path)
+            data = path.read_bytes()
+            path.write_bytes(bytes([data[0] ^ 1]) + data[1:])
+
+            with self.assertRaisesRegex(
+                ReferenceSheetIntegrityError,
+                "SHA-256",
+            ):
+                verify_product_reference_sheet(sheet)
+
+    def test_corrupt_bytes_fail_even_when_recorded_hash_and_size_match(self) -> None:
+        corrupt = b"not a reference-sheet image"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sheet = self.build_sheet(Path(temporary_directory))
+            path = Path(sheet.local_path)
+            path.write_bytes(corrupt)
+            changed = sheet.model_copy(
+                update={
+                    "sha256": hashlib.sha256(corrupt).hexdigest(),
+                    "byte_size": len(corrupt),
+                }
+            )
+
+            with self.assertRaisesRegex(
+                ReferenceSheetIntegrityError,
+                "decode",
+            ):
+                verify_product_reference_sheet(changed)
+
+    def test_decoded_dimensions_format_and_mode_must_remain_canonical(self) -> None:
+        cases = (
+            ("dimensions", "PNG", "RGB", (1024, 1024)),
+            ("format", "JPEG", "RGB", (2048, 2048)),
+            ("RGB", "PNG", "RGBA", (2048, 2048)),
+        )
+        for message, image_format, mode, size in cases:
+            with self.subTest(message=message):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    sheet = self.build_sheet(Path(temporary_directory))
+                    output = io.BytesIO()
+                    color = (
+                        (20, 100, 180, 128)
+                        if mode == "RGBA"
+                        else (20, 100, 180)
+                    )
+                    Image.new(mode, size, color).save(output, format=image_format)
+                    data = output.getvalue()
+                    Path(sheet.local_path).write_bytes(data)
+                    changed = sheet.model_copy(
+                        update={
+                            "sha256": hashlib.sha256(data).hexdigest(),
+                            "byte_size": len(data),
+                        }
+                    )
+
+                    with self.assertRaisesRegex(
+                        ReferenceSheetIntegrityError,
+                        message,
+                    ):
+                        verify_product_reference_sheet(changed)
+
+    def test_local_sheet_cannot_exceed_absolute_size_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            sheet = self.build_sheet(root)
+            oversized = root / "oversized.png"
+            with oversized.open("wb") as output:
+                output.seek(MAX_REFERENCE_SHEET_BYTES)
+                output.write(b"x")
+            changed = sheet.model_copy(update={"local_path": str(oversized)})
+
+            with self.assertRaisesRegex(
+                ReferenceSheetIntegrityError,
+                "20 MB",
+            ):
+                verify_product_reference_sheet(changed)
+
+    def test_legacy_metadata_without_byte_size_still_reverifies(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sheet = self.build_sheet(Path(temporary_directory))
+            payload = sheet.model_dump(mode="json")
+            payload.pop("byte_size")
+            legacy = ProductReferenceSheet.model_validate(payload)
+
+            verified = verify_product_reference_sheet(legacy)
+
+        self.assertIsNone(legacy.byte_size)
+        self.assertEqual(verified, legacy)
+
+    def test_reverification_does_not_mutate_sheet_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sheet = self.build_sheet(Path(temporary_directory))
+            before = json.loads(sheet.model_dump_json())
+
+            verify_product_reference_sheet(sheet)
+
+        self.assertEqual(json.loads(sheet.model_dump_json()), before)
 
 if __name__ == "__main__":
     unittest.main()

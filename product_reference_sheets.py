@@ -3,7 +3,9 @@
 import hashlib
 import io
 import os
+import stat
 import tempfile
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
@@ -29,6 +31,7 @@ from product_image_sets import build_verified_product_image_set
 
 MAX_REFERENCE_IMAGES = 6
 MAX_CANVAS_SIZE = 2048
+MAX_REFERENCE_SHEET_BYTES = 20 * 1024 * 1024
 DEFAULT_CANVAS_SIZE = 2048
 DEFAULT_OUTER_MARGIN = 64
 DEFAULT_TILE_GAP = 32
@@ -61,6 +64,10 @@ class ReferenceSheetRenderError(ProductReferenceSheetError):
 
 class ReferenceSheetFilesystemError(ProductReferenceSheetError):
     """Raised when deterministic sheet output cannot be stored safely."""
+
+
+class ReferenceSheetIntegrityError(ProductReferenceSheetError):
+    """Raised when a stored reference sheet no longer matches its metadata."""
 
 
 class ProductReferenceSheetPolicy(ProductModel):
@@ -137,6 +144,7 @@ class ProductReferenceSheet(ProductModel):
     height: int = Field(gt=0, le=MAX_CANVAS_SIZE, strict=True)
     format: Literal["PNG"] = "PNG"
     sha256: Sha256Hex
+    byte_size: Optional[int] = Field(default=None, gt=0, strict=True)
     created_at: datetime = Field(default_factory=_utc_now)
     tiles: List[ProductReferenceSheetTile] = Field(
         min_length=1,
@@ -335,6 +343,103 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def read_verified_product_reference_sheet_bytes(
+    sheet: ProductReferenceSheet,
+) -> bytes:
+    """Read a canonical sheet only after file and decoded metadata match."""
+
+    path = Path(sheet.local_path)
+    try:
+        if path.is_symlink():
+            raise ReferenceSheetIntegrityError(
+                "Reference-sheet path must not be a symbolic link."
+            )
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as local_file:
+            file_details = os.fstat(local_file.fileno())
+            if not stat.S_ISREG(file_details.st_mode):
+                raise ReferenceSheetIntegrityError(
+                    "Reference-sheet path must be a regular file."
+                )
+            if file_details.st_size > MAX_REFERENCE_SHEET_BYTES:
+                raise ReferenceSheetIntegrityError(
+                    "Reference-sheet file exceeds the absolute 20 MB limit."
+                )
+            if (
+                sheet.byte_size is not None
+                and file_details.st_size != sheet.byte_size
+            ):
+                raise ReferenceSheetIntegrityError(
+                    "Reference-sheet byte size does not match its metadata."
+                )
+            data = local_file.read(MAX_REFERENCE_SHEET_BYTES + 1)
+    except ReferenceSheetIntegrityError:
+        raise
+    except OSError as error:
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet path must be an accessible regular file."
+        ) from error
+
+    if len(data) > MAX_REFERENCE_SHEET_BYTES:
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet file exceeds the absolute 20 MB limit."
+        )
+    if sheet.byte_size is not None and len(data) != sheet.byte_size:
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet byte size does not match its metadata."
+        )
+    if hashlib.sha256(data).hexdigest() != sheet.sha256:
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet SHA-256 does not match its metadata."
+        )
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(data)) as candidate:
+                image_format = candidate.format
+                image_size = candidate.size
+                image_mode = candidate.mode
+                candidate.verify()
+            with Image.open(io.BytesIO(data)) as decoded:
+                decoded.load()
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        ValueError,
+    ) as error:
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet bytes could not be fully decoded."
+        ) from error
+
+    if image_format != "PNG":
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet decoded format must remain PNG."
+        )
+    if image_size != (sheet.width, sheet.height):
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet decoded dimensions do not match its metadata."
+        )
+    if image_mode != "RGB":
+        raise ReferenceSheetIntegrityError(
+            "Reference-sheet decoded mode must remain RGB."
+        )
+    return data
+
+
+def verify_product_reference_sheet(
+    sheet: ProductReferenceSheet,
+) -> ProductReferenceSheet:
+    """Fail if a stored reference sheet no longer matches its metadata."""
+
+    read_verified_product_reference_sheet_bytes(sheet)
+    return sheet.model_copy(deep=True)
+
+
 def _store_reference_sheet(
     data: bytes,
     product_id: str,
@@ -442,6 +547,7 @@ def build_product_reference_sheet(
         width=active_policy.canvas_width,
         height=active_policy.canvas_height,
         sha256=sha256,
+        byte_size=len(png_bytes),
         created_at=_utc_now(),
         tiles=tiles,
     )

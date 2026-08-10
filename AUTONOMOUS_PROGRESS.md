@@ -168,3 +168,16 @@
 - Design decision: Derived metadata lives in a separate versioned manifest to avoid changing the original-asset schema or creating circular dependencies; builder/revalidation APIs compare tile source ID, SHA-256, and local path against `ProductAssetManifest`.
 - Known limitation: Standalone structural loading cannot prove current source or derived-file integrity until the caller supplies the original manifest for linkage revalidation.
 - Next selected feature: Add fail-fast local integrity verification for persisted reference-sheet PNGs before downstream use.
+
+## Feature 2.17 — Reference-sheet integrity verification
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Fail fast when a persisted reference-sheet PNG no longer matches its recorded bytes or canonical decoded properties.
+- Main files: `product_reference_sheets.py`, `tests/test_product_reference_sheets.py`.
+- Tests added: 10 focused valid-copy, missing/non-file, symlink, byte-size, SHA-256, corrupt-decode, decoded-metadata, absolute-size-limit, legacy-compatibility, and mutation-isolation tests.
+- Total tests: 227 passing.
+- Real-world regression: The Soundcore reference sheet re-verified as a 906,405-byte RGB PNG with unchanged SHA-256 `7feb5befb9604920f0073181826ebc55d2741bfa6b05c3dca43518018b15450e` and original-tile provenance.
+- Design decision: New sheet metadata records byte size while the field remains optional for backward compatibility; verification rejects symlinks/non-files, enforces a 20 MB ceiling, and checks size, SHA-256, full PNG decoding, dimensions, and RGB mode without repairing state.
+- Known limitation: Verification is fail-fast for one local sheet and does not batch failures, relocate files, or compare rendered pixels back to source tiles.
+- Next selected feature: Deterministically partition more than six eligible ranked originals into a complete ordered reference-sheet set.
