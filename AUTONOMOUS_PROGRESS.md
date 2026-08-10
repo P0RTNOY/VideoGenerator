@@ -335,3 +335,15 @@
 - Design decision: Campaign snapshots retain only selected user-facing claim ID, display text, optional context text, and selection-time verification status. Supported and corroborated claims are allowed, ambiguous claims require exact explicit acknowledgement, and conflicting claims are rejected. Context validation requires current Product, candidate, and complete review data and returns a deep copy without mutating upstream domain objects.
 - Known limitation: Campaign v1 supports only `vertical_social` at `9:16`, caller-supplied IDs, a conservative BCP-47-shaped language tag, and JSON-file persistence. It contains no product copy, evidence, images, assets, provider settings, prompts, generation state, approval semantics, or timestamps.
 - Next selected feature: Feature 4.1, the approved core Storyboard domain bound to Campaign with ordered shots, selected-claim subsets, and timeline-duration validation.
+
+## Feature 4.1 — Storyboard core domain
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Represent an ordered, Campaign-bound shot timeline with explicit claim assignment and a target-duration tolerance, without adding text, media, or provider concerns.
+- Main files: `storyboard.py` and `tests/test_storyboard.py`.
+- Tests added: 11 focused valid-model, Campaign binding, ordered shots/claims, required and unique shots, purpose/text fields, zero/one/multiple claim assignment, Campaign claim subset, strict finite positive durations, exact/inclusive/outside duration tolerance, persistence, strict-schema, compatibility, and mutation-isolation tests.
+- Total tests: 401 passing.
+- Design decision: Shot-list position is authoritative order. Each shot may use any unique ordered subset of Campaign-selected claims, and Campaign claims may remain unused. Context validation rechecks the Campaign ID, non-empty/unique shots, claim subset, safe durations, and a total within ±0.5 seconds of the Campaign target before returning an isolated copy.
+- Known limitation: Storyboard core has no overlays, Product data, claim wording, asset references, prompts, provider state, transitions, editing handles, or per-element timing. Duration is intended timeline time only.
+- Next selected feature: Feature 4.2, the approved typed text overlays with claim-ID-only factual overlays and backward-compatible empty overlay lists.
