@@ -431,3 +431,18 @@
 - Provider decision: Feature 4.6 imports no provider adapter and performs no generation, retry, AI vision review, perceptual comparison, legal approval, or rights assessment. A regenerated frame remains pending until separately reviewed.
 - Known limitation: Reviewer IDs are attribution-only free-form strings. Local JSON append safety is cooperative rather than a database/audit-signature system, and technical integrity plus manual review still cannot prove legal rights or wider campaign approval.
 - Next selected feature: Design only Feature 4.7, a provider-neutral one-shot video request that animates an exact approved Hero Frame. Do not implement the request model, Veo adapter, paid calls, audio, or video artifact handling without owner approval.
+
+## Feature 4.7A — Approved Video Shot requests
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Project one exact current, manually approved Hero Frame into a provider-neutral ephemeral video request without exposing raw Product references or provider concerns.
+- Main files: `video_shot_request.py` and `tests/test_video_shot_request.py`.
+- Tests added: 15 focused approved/pending/rejected/latest-review gates, stale and mismatched context, exact Product/Campaign/Storyboard/asset-plan/shot bindings, prepared-shot requirement, sole start-image handle, consumer-time SHA/format/dimension verification, dual durations, explicit motion, optional shot-claim snapshots, fixed fidelity/text/audio policies, raw-reference/overlay/provider exclusion, strict schemas, bypass revalidation, and mutation isolation tests.
+- Request decision: `VideoShotRequest` contains only exact domain bindings, Hero Frame artifact/request/review authority, a verified runtime PNG handle, Storyboard intended edit duration, caller-supplied raw generation duration, explicit `VideoMotionIntent`, optional explicitly selected matching Campaign claim snapshots, `9:16`, and fixed `animate_approved_hero_frame`, `no_added_text`, and `discard_before_editing` policies. It has no save/load helpers.
+- Approval decision: Construction revalidates every typed input, exact context binding, one prepared shot, current Hero Frame bytes, the review context, and the latest review. Only `approved_for_video_start_image` is admitted; pending, rejected, stale, regenerated, mismatched, and structurally bypassed inputs fail without fallback.
+- Reference decision: The approved Hero Frame is the sole visual runtime input. Product images, original/reference-sheet selections, Storyboard overlays and visual descriptions, prompts, provider/model state, and raw bytes are absent. The asset plan participates only as an exact durable identity and prepared-shot gate.
+- Motion/claim decision: Motion is non-empty caller-authored intent and is never inferred from Storyboard prose. Motion-relevant claim IDs default to none, must be unique and belong to the exact shot, and resolve only unchanged Campaign snapshots without ClaimEvidence.
+- Duration/audio decision: Intended edit duration remains the matching Storyboard value; raw generation duration is a separate strict caller input and never mutates Storyboard. Provider audio may exist later, but the request fixes its disposition to `discard_before_editing` rather than claiming silence.
+- Known limitation: This phase performs no provider rendering/call, duration capability negotiation, video persistence, media inspection, editing approval, legal/rights review, or audio processing. Authored motion is treated as untrusted creative text and will be bounded and delimited at the adapter compiler boundary.
+- Next selected feature: Feature 4.7B, the approved Veo 3.1 Fast image-to-video adapter with fake operations, exact raw MP4 admission, and no live paid call.
