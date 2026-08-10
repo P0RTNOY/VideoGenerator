@@ -310,3 +310,16 @@
 - Design decision: `verify_selected_discovery_sources` accepts only explicit accepted proposal URLs, resolves them in proposal order, binds every selected proposal back to exactly one accepted exact-product candidate, reuses deep-copied discovery-time Products and reconciliation, preserves discovered URL as requested provenance and the researched Product source as final provenance, and delegates all status semantics unchanged to Feature 2.22. The existing Feature 3.2 fetch-oriented API remains available and behavior-compatible.
 - Known limitation: Reuse is intentionally limited to the supplied in-memory discovery result. There is no persistent cache, freshness policy, source weighting, legal/marketing approval, claim expansion, mutation of Product verification flags, or automatic participation by unselected proposals.
 - Next selected feature: Add the approved small pure claim-review projection that joins existing ad-claim candidates to verification results without introducing UI, Campaign, or approval semantics.
+
+## Feature 3.4 — Claim review projection
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Project existing `AdClaimCandidate` and `ClaimVerificationResult` data into a small deterministic review item suitable for a future consumer without assigning approval or mutating either source model.
+- Main files: `claim_review.py` and `tests/test_claim_review.py`.
+- Tests added: 8 focused exact-ID and candidate-order joins, supported defaults, distinct-source comparison counts, duplicate-observation handling, deep-copy/evidence freshness, empty input, duplicate/unknown claim rejection, and strict JSON round-trip tests.
+- Total tests: 378 passing.
+- Real-world regression: The existing Soundcore manual demo and all product research, ad-claim, verification, discovery, and image pipeline tests remain green. No live page or stale evaluation artifact was needed for this pure projection.
+- Design decision: `ClaimReviewItem` contains a deep-copied candidate, the unchanged Feature 2.22 status, and counts of unique requested supplementary sources that agree, conflict, or remain ambiguous. `project_claim_review_items` performs exact established claim-ID lookup in candidate order; duplicate observations from one requested source do not inflate its count.
+- Known limitation: The projection does not contain marketing/legal approval, source authority, publisher weighting, claim selection, persistence, UI state, or Product identity beyond the source candidate/report join already established by claim ID.
+- Next selected feature: Stop at the owner-policy boundary. Any further meaningful work would require Campaign/Storyboard design, approval semantics, Product verification mutation, source weighting, persistent freshness/cache policy, or production search/generation infrastructure.
