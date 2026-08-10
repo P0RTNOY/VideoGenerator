@@ -19,12 +19,14 @@ from product_image_downloads import (
     ImageContentTypeError,
     ImageFilesystemError,
     ImageHttpError,
+    ImageIntegrityError,
     ImageResponseTooLargeError,
     ImageTimeoutError,
     InvalidImageUrlError,
     UnsupportedImageFormatError,
     UnsupportedProductImageSourceError,
     download_product_image,
+    verify_downloaded_product_image,
 )
 
 
@@ -115,6 +117,30 @@ def discovered_image(
         width=width,
         height=height,
         confidence=0.80,
+    )
+
+
+def downloaded_asset(
+    path: Path,
+    data: bytes,
+    *,
+    width: int = 7,
+    height: int = 5,
+    image_format: str = "PNG",
+    mime_type: str = "image/png",
+) -> DownloadedProductImage:
+    return DownloadedProductImage(
+        product_id="example-product",
+        source_image_id="image-source",
+        source_url="https://cdn.example/source.png",
+        final_url="https://cdn.example/final.png",
+        local_path=str(path),
+        sha256=hashlib.sha256(data).hexdigest(),
+        byte_size=len(data),
+        width=width,
+        height=height,
+        format=image_format,
+        mime_type=mime_type,
     )
 
 
@@ -577,6 +603,132 @@ class ProductImageDownloadTests(unittest.TestCase):
                 )
         self.assertIsNone(source.local_path)
 
+
+class DownloadedProductImageIntegrityTests(unittest.TestCase):
+    def test_valid_original_reverifies_and_returns_an_isolated_copy(self) -> None:
+        data = encoded_image("PNG")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "original.png"
+            path.write_bytes(data)
+            asset = downloaded_asset(path, data)
+
+            verified = verify_downloaded_product_image(asset)
+
+        self.assertEqual(verified, asset)
+        self.assertIsNot(verified, asset)
+
+    def test_missing_or_non_file_path_fails_clearly(self) -> None:
+        data = encoded_image("PNG")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            missing = downloaded_asset(
+                Path(temporary_directory) / "missing.png",
+                data,
+            )
+            directory = Path(temporary_directory) / "directory.png"
+            directory.mkdir()
+            non_file = downloaded_asset(directory, data)
+
+            for asset in (missing, non_file):
+                with self.subTest(path=asset.local_path):
+                    with self.assertRaisesRegex(
+                        ImageIntegrityError,
+                        "regular file",
+                    ):
+                        verify_downloaded_product_image(asset)
+
+    def test_symbolic_link_is_rejected(self) -> None:
+        data = encoded_image("PNG")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            original = Path(temporary_directory) / "original.png"
+            original.write_bytes(data)
+            link = Path(temporary_directory) / "link.png"
+            link.symlink_to(original)
+            asset = downloaded_asset(link, data)
+
+            with self.assertRaisesRegex(ImageIntegrityError, "symbolic link"):
+                verify_downloaded_product_image(asset)
+
+    def test_byte_size_mismatch_is_detected_before_decoding(self) -> None:
+        data = encoded_image("PNG")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "original.png"
+            path.write_bytes(data + b"changed")
+            asset = downloaded_asset(path, data)
+
+            with self.assertRaisesRegex(ImageIntegrityError, "byte size"):
+                verify_downloaded_product_image(asset)
+
+    def test_sha256_mismatch_is_detected(self) -> None:
+        data = encoded_image("PNG")
+        changed = bytes([data[0] ^ 1]) + data[1:]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "original.png"
+            path.write_bytes(changed)
+            asset = downloaded_asset(path, data)
+
+            with self.assertRaisesRegex(ImageIntegrityError, "SHA-256"):
+                verify_downloaded_product_image(asset)
+
+    def test_decoded_metadata_mismatch_is_detected(self) -> None:
+        data = encoded_image("PNG")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "original.png"
+            path.write_bytes(data)
+            asset = downloaded_asset(path, data, width=99)
+
+            with self.assertRaisesRegex(ImageIntegrityError, "dimensions"):
+                verify_downloaded_product_image(asset)
+
+            for field_name, asset in (
+                (
+                    "format",
+                    downloaded_asset(path, data, image_format="JPEG"),
+                ),
+                (
+                    "MIME type",
+                    downloaded_asset(path, data, mime_type="image/jpeg"),
+                ),
+            ):
+                with self.subTest(field_name=field_name):
+                    with self.assertRaisesRegex(
+                        ImageIntegrityError,
+                        field_name,
+                    ):
+                        verify_downloaded_product_image(asset)
+
+    def test_corrupt_bytes_are_rejected_even_when_hash_and_size_match(self) -> None:
+        data = b"not actually an image"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "original.png"
+            path.write_bytes(data)
+            asset = downloaded_asset(path, data)
+
+            with self.assertRaisesRegex(ImageIntegrityError, "decode"):
+                verify_downloaded_product_image(asset)
+
+    def test_local_file_cannot_exceed_absolute_image_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "oversized.png"
+            with path.open("wb") as oversized:
+                oversized.seek(MAX_IMAGE_BYTES)
+                oversized.write(b"x")
+            data = b"placeholder"
+            asset = downloaded_asset(path, data)
+
+            with self.assertRaisesRegex(ImageIntegrityError, "20 MB"):
+                verify_downloaded_product_image(asset)
+
+    def test_reverification_does_not_mutate_manifest_metadata(self) -> None:
+        data = encoded_image("PNG")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "original.png"
+            path.write_bytes(data)
+            asset = downloaded_asset(path, data)
+            before = asset.model_dump(mode="json")
+
+            verify_downloaded_product_image(asset)
+
+        self.assertEqual(asset.model_dump(mode="json"), before)
 
 if __name__ == "__main__":
     unittest.main()

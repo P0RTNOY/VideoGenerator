@@ -6,6 +6,7 @@ import hashlib
 import io
 import os
 import re
+import stat
 import tempfile
 import warnings
 from datetime import datetime, timezone
@@ -106,6 +107,10 @@ class UnsupportedImageFormatError(ProductImageDownloadError):
 
 class ImageFilesystemError(ProductImageDownloadError):
     """Raised when a verified original cannot be stored safely."""
+
+
+class ImageIntegrityError(ProductImageDownloadError):
+    """Raised when a stored original no longer matches its asset metadata."""
 
 
 def _validate_image_url(value: Optional[str], label: str) -> str:
@@ -274,6 +279,80 @@ def _store_original(
                 raise ImageFilesystemError(
                     f"Could not remove temporary image file: {error}"
                 ) from error
+
+
+def verify_downloaded_product_image(
+    asset: DownloadedProductImage,
+) -> DownloadedProductImage:
+    """Fail if a stored original no longer matches its recorded metadata."""
+
+    path = Path(asset.local_path)
+    try:
+        if path.is_symlink():
+            raise ImageIntegrityError(
+                "Downloaded image path must not be a symbolic link."
+            )
+
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as local_file:
+            file_details = os.fstat(local_file.fileno())
+            if not stat.S_ISREG(file_details.st_mode):
+                raise ImageIntegrityError(
+                    "Downloaded image path must be a regular file."
+                )
+            if file_details.st_size > MAX_IMAGE_BYTES:
+                raise ImageIntegrityError(
+                    "Downloaded image file exceeds the absolute 20 MB limit."
+                )
+            if file_details.st_size != asset.byte_size:
+                raise ImageIntegrityError(
+                    "Downloaded image byte size does not match its metadata."
+                )
+            data = local_file.read(MAX_IMAGE_BYTES + 1)
+    except ImageIntegrityError:
+        raise
+    except OSError as error:
+        raise ImageIntegrityError(
+            "Downloaded image path must be an accessible regular file."
+        ) from error
+
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ImageIntegrityError(
+            "Downloaded image file exceeds the absolute 20 MB limit."
+        )
+    if len(data) != asset.byte_size:
+        raise ImageIntegrityError(
+            "Downloaded image byte size does not match its metadata."
+        )
+    if hashlib.sha256(data).hexdigest() != asset.sha256:
+        raise ImageIntegrityError(
+            "Downloaded image SHA-256 does not match its metadata."
+        )
+
+    try:
+        width, height, image_format, mime_type, _ = (
+            _verified_image_properties(data)
+        )
+    except (CorruptImageError, UnsupportedImageFormatError) as error:
+        raise ImageIntegrityError(
+            "Downloaded image could not be decoded as a supported image."
+        ) from error
+
+    if (width, height) != (asset.width, asset.height):
+        raise ImageIntegrityError(
+            "Downloaded image dimensions do not match its metadata."
+        )
+    if image_format != asset.format:
+        raise ImageIntegrityError(
+            "Downloaded image format does not match its metadata."
+        )
+    if mime_type != asset.mime_type:
+        raise ImageIntegrityError(
+            "Downloaded image MIME type does not match its metadata."
+        )
+
+    return asset.model_copy(deep=True)
 
 
 def download_product_image(
