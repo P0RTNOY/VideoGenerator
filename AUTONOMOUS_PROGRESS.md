@@ -259,3 +259,16 @@
 - Design decision: `resolve_claim_verification_result` accepts the established candidate ID string, performs exact deterministic lookup only, returns a deep copy, and raises a dedicated error for malformed or unknown IDs.
 - Known limitation: Lookup is intentionally single-result and exact-ID only; it does not merge models, create bulk view models, persist reports, or add verification state to ad claims.
 - Next selected feature: Stop at the YAGNI/policy boundary; serialization and summary APIs should be added only for a concrete consumer, while automatic discovery and authority policy remain deferred.
+
+## Feature 3.0 — Official product page discovery
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Given a small typed brand/product identity request, use bounded provider-supplied navigation hints to discover and validate at most one official manufacturer product page through the existing single-page research pipeline.
+- Main files: `official_product_discovery.py` and `tests/test_official_product_discovery.py`.
+- Tests added: 25 focused request/result strictness, fake-provider, query/result/fetch limits, official-domain, URL exclusion, rank neutrality, exact identity/model conflict, strongest match, ambiguity, fetch/provider failure, redirect/final-domain, URL deduplication, search-metadata isolation, Product request derivation, mutation isolation, and JSON round-trip tests.
+- Total tests: 324 passing.
+- Real search adapter: Not implemented. The current environment has no appropriate mature zero-credential search interface, and Feature 3.0 deliberately does not scrape search-engine HTML or invent credentials. Consequently no live Soundcore discovery was claimed.
+- Design decision: Search providers expose one minimal `search(query, limit=...)` Protocol and their titles/snippets remain navigation metadata only. Discovery uses at most three queries, consumes at most ten raw results per query, and runs at most five existing `research_product` calls. A candidate must pass conservative URL filtering, exact registrable brand-domain correspondence or an explicit known-domain constraint, final redirect-domain revalidation, and existing deterministic Product reconciliation. A unique shared-model match can outrank name-only matches; equal strongest pages remain ambiguous; normalized duplicate result/final URLs cannot create duplicate fetches or false ambiguity.
+- Known limitation: The no-dependency registrable-domain heuristic intentionally covers only common host layouts and cannot prove corporate ownership. There is no Public Suffix List, brand-domain registry, retry, cache, persistence, CLI, real search provider, supplementary-source discovery, fuzzy matching, or automatic use of discovered retailer/editorial pages.
+- Next selected feature: Design Feature 3.1 supplementary product source discovery and stop for owner decisions on retailer/marketplace/editorial admission, publisher diversity and authority, automatic fetching, and strict search/fetch budgets.
