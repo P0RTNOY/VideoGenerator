@@ -29,24 +29,48 @@ class ProductDerivedAssetManifest(ProductModel):
     def require_consistent_reference_sheets(
         self,
     ) -> "ProductDerivedAssetManifest":
-        sheet_hashes = set()
-        sheet_paths = set()
+        path_by_hash = {}
+        hash_by_path = {}
+        provenance_signatures = set()
         for sheet in self.reference_sheets:
             if sheet.product_id != self.product_id:
                 raise ValueError(
                     f"reference sheet belongs to Product {sheet.product_id}, "
                     f"not {self.product_id}"
                 )
-            if sheet.sha256 in sheet_hashes:
+            existing_path = path_by_hash.get(sheet.sha256)
+            if existing_path is not None and existing_path != sheet.local_path:
                 raise ValueError(
-                    f"duplicate reference-sheet SHA-256: {sheet.sha256}"
+                    "reference sheets with the same SHA-256 must use the "
+                    "same local path"
                 )
-            if sheet.local_path in sheet_paths:
+            path_by_hash[sheet.sha256] = sheet.local_path
+
+            existing_hash = hash_by_path.get(sheet.local_path)
+            if existing_hash is not None and existing_hash != sheet.sha256:
                 raise ValueError(
-                    f"duplicate reference-sheet local path: {sheet.local_path}"
+                    "reference sheets using the same local path must have "
+                    "the same SHA-256"
                 )
-            sheet_hashes.add(sheet.sha256)
-            sheet_paths.add(sheet.local_path)
+            hash_by_path[sheet.local_path] = sheet.sha256
+
+            provenance_signature = (
+                sheet.sha256,
+                sheet.local_path,
+                tuple(
+                    (
+                        tile.source_image_id,
+                        tile.source_sha256,
+                        tile.source_local_path,
+                    )
+                    for tile in sheet.tiles
+                ),
+            )
+            if provenance_signature in provenance_signatures:
+                raise ValueError(
+                    "duplicate reference-sheet binary and tile provenance"
+                )
+            provenance_signatures.add(provenance_signature)
         return self
 
 

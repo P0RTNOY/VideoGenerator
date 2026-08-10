@@ -132,6 +132,46 @@ class ProductDerivedAssetManifestTests(unittest.TestCase):
                         reference_sheets=sheets,
                     )
 
+    def test_shared_derived_bytes_can_retain_distinct_tile_provenance(self) -> None:
+        first_source = downloaded_image()
+        second_source = downloaded_image(
+            "source-two",
+            sha256="c" * 64,
+            local_path="/assets/example-product/source-two.png",
+        )
+        originals = ProductAssetManifest(
+            product_id="example-product",
+            images=[first_source, second_source],
+        )
+        shared_path = "/assets/example-product/shared-sheet.png"
+        first_sheet = reference_sheet(first_source, sheet_path=shared_path)
+        second_sheet = reference_sheet(second_source, sheet_path=shared_path)
+
+        derived = build_product_derived_asset_manifest(
+            originals,
+            [first_sheet, second_sheet],
+        )
+
+        self.assertEqual(len(derived.reference_sheets), 2)
+        self.assertEqual(
+            {sheet.sha256 for sheet in derived.reference_sheets},
+            {"b" * 64},
+        )
+        self.assertEqual(
+            [sheet.tiles[0].source_image_id for sheet in derived.reference_sheets],
+            ["source-one", "source-two"],
+        )
+
+    def test_duplicate_sheet_provenance_is_rejected(self) -> None:
+        source = downloaded_image()
+        sheet = reference_sheet(source)
+
+        with self.assertRaisesRegex(ValidationError, "provenance"):
+            ProductDerivedAssetManifest(
+                product_id="example-product",
+                reference_sheets=[sheet, sheet.model_copy(deep=True)],
+            )
+
     def test_builder_links_every_tile_to_original_manifest_identity(self) -> None:
         source = downloaded_image()
         originals = ProductAssetManifest(

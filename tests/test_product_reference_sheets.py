@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from ad_claims import generate_ad_claim_candidates
 from product import Product, ProductFeature, ProductImage, ProductSpec
 from product_asset_manifest import ProductAssetManifest
+from product_derived_asset_manifest import build_product_derived_asset_manifest
 from product_image_downloads import DownloadedProductImage, ImageIntegrityError
 from product_image_eligibility import ProductImageEligibilityRequirements
 from product_image_sets import build_verified_product_image_set
@@ -25,6 +26,7 @@ from product_reference_sheets import (
     ReferenceSheetFilesystemError,
     ReferenceSheetIntegrityError,
     build_product_reference_sheet,
+    build_product_reference_sheet_set,
     verify_product_reference_sheet,
 )
 
@@ -854,6 +856,150 @@ class ProductReferenceSheetIntegrityTests(unittest.TestCase):
             verify_product_reference_sheet(sheet)
 
         self.assertEqual(json.loads(sheet.model_dump_json()), before)
+
+
+class ProductReferenceSheetSetTests(unittest.TestCase):
+    def test_six_or_fewer_images_match_the_single_sheet_builder(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            product, manifest, _ = image_bundle(root, 4)
+
+            single = build_product_reference_sheet(
+                product,
+                manifest,
+                storage_root=root / "products",
+            )
+            sheets = build_product_reference_sheet_set(
+                product,
+                manifest,
+                storage_root=root / "products",
+            )
+
+        self.assertEqual(len(sheets), 1)
+        self.assertEqual(sheets[0].sha256, single.sha256)
+        self.assertEqual(sheets[0].local_path, single.local_path)
+        self.assertEqual(sheets[0].tiles, single.tiles)
+
+    def test_seven_twelve_and_thirteen_images_use_complete_six_item_chunks(self) -> None:
+        for count, expected_counts in (
+            (7, [6, 1]),
+            (12, [6, 6]),
+            (13, [6, 6, 1]),
+        ):
+            with self.subTest(count=count):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    product, manifest, _ = image_bundle(root, count)
+
+                    sheets = build_product_reference_sheet_set(
+                        product,
+                        manifest,
+                        storage_root=root / "products",
+                    )
+
+                self.assertEqual(
+                    [len(sheet.tiles) for sheet in sheets],
+                    expected_counts,
+                )
+                self.assertEqual(
+                    [
+                        tile.source_image_id
+                        for sheet in sheets
+                        for tile in sheet.tiles
+                    ],
+                    [f"image-{index}" for index in range(count)],
+                )
+
+    def test_ineligible_images_are_removed_before_chunking(self) -> None:
+        sizes = [(400, 400)] + [(600, 600)] * 8
+        confidences = [0.99] + [0.80] * 8
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            product, manifest, _ = image_bundle(
+                root,
+                9,
+                sizes=sizes,
+                confidences=confidences,
+            )
+
+            sheets = build_product_reference_sheet_set(
+                product,
+                manifest,
+                storage_root=root / "products",
+            )
+
+        self.assertEqual([len(sheet.tiles) for sheet in sheets], [6, 2])
+        self.assertEqual(
+            [
+                tile.source_image_id
+                for sheet in sheets
+                for tile in sheet.tiles
+            ],
+            [f"image-{index}" for index in range(1, 9)],
+        )
+
+    def test_every_generated_sheet_verifies_and_links_into_derived_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            product, manifest, _ = image_bundle(root, 7)
+
+            sheets = build_product_reference_sheet_set(
+                product,
+                manifest,
+                storage_root=root / "products",
+            )
+            verified = [
+                verify_product_reference_sheet(sheet) for sheet in sheets
+            ]
+            derived = build_product_derived_asset_manifest(
+                manifest,
+                verified,
+            )
+
+        self.assertEqual(derived.reference_sheets, verified)
+
+    def test_empty_or_fully_ineligible_set_fails_without_partial_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            empty = product_for([])
+            empty_manifest = ProductAssetManifest(product_id=PRODUCT_ID)
+            small_product, small_manifest, _ = image_bundle(
+                root,
+                1,
+                sizes=[(400, 400)],
+            )
+
+            for product, manifest in (
+                (empty, empty_manifest),
+                (small_product, small_manifest),
+            ):
+                with self.subTest(images=len(product.images)):
+                    with self.assertRaises(NoEligibleReferenceImagesError):
+                        build_product_reference_sheet_set(
+                            product,
+                            manifest,
+                            storage_root=root / "products",
+                        )
+
+    def test_set_generation_does_not_mutate_product_manifest_or_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            product, manifest, _ = image_bundle(root, 7)
+            policy = ProductReferenceSheetPolicy()
+            product_before = json.loads(product.model_dump_json())
+            manifest_before = json.loads(manifest.model_dump_json())
+            policy_before = json.loads(policy.model_dump_json())
+
+            build_product_reference_sheet_set(
+                product,
+                manifest,
+                storage_root=root / "products",
+                policy=policy,
+            )
+
+        self.assertEqual(json.loads(product.model_dump_json()), product_before)
+        self.assertEqual(json.loads(manifest.model_dump_json()), manifest_before)
+        self.assertEqual(json.loads(policy.model_dump_json()), policy_before)
 
 if __name__ == "__main__":
     unittest.main()

@@ -505,6 +505,53 @@ def _store_reference_sheet(
                 ) from error
 
 
+def _eligible_reference_images(
+    product: Product,
+    manifest: ProductAssetManifest,
+    policy: ProductReferenceSheetPolicy,
+) -> List[DownloadedProductImage]:
+    verified_images = build_verified_product_image_set(product, manifest)
+    eligible_images = [
+        image
+        for image in verified_images
+        if evaluate_product_image_eligibility(
+            image,
+            policy.eligibility,
+        ).eligible
+    ]
+    if not eligible_images:
+        raise NoEligibleReferenceImagesError(
+            "No verified product images satisfy reference-sheet eligibility."
+        )
+    return eligible_images
+
+
+def _build_reference_sheet_from_images(
+    product_id: str,
+    images: List[DownloadedProductImage],
+    storage_root: Union[str, Path],
+    policy: ProductReferenceSheetPolicy,
+) -> ProductReferenceSheet:
+    png_bytes, tiles = _render_reference_sheet(images, policy)
+    sha256 = hashlib.sha256(png_bytes).hexdigest()
+    local_path = _store_reference_sheet(
+        png_bytes,
+        product_id,
+        sha256,
+        storage_root,
+    )
+    return ProductReferenceSheet(
+        product_id=product_id,
+        local_path=str(local_path),
+        width=policy.canvas_width,
+        height=policy.canvas_height,
+        sha256=sha256,
+        byte_size=len(png_bytes),
+        created_at=_utc_now(),
+        tiles=tiles,
+    )
+
+
 def build_product_reference_sheet(
     product: Product,
     manifest: ProductAssetManifest,
@@ -519,35 +566,44 @@ def build_product_reference_sheet(
         if policy is not None
         else ProductReferenceSheetPolicy()
     )
-    verified_images = build_verified_product_image_set(product, manifest)
-    eligible_images = [
-        image
-        for image in verified_images
-        if evaluate_product_image_eligibility(
-            image,
-            active_policy.eligibility,
-        ).eligible
-    ][:MAX_REFERENCE_IMAGES]
-    if not eligible_images:
-        raise NoEligibleReferenceImagesError(
-            "No verified product images satisfy reference-sheet eligibility."
-        )
-
-    png_bytes, tiles = _render_reference_sheet(eligible_images, active_policy)
-    sha256 = hashlib.sha256(png_bytes).hexdigest()
-    local_path = _store_reference_sheet(
-        png_bytes,
+    eligible_images = _eligible_reference_images(
+        product,
+        manifest,
+        active_policy,
+    )
+    return _build_reference_sheet_from_images(
         product.id,
-        sha256,
+        eligible_images[:MAX_REFERENCE_IMAGES],
         storage_root,
+        active_policy,
     )
-    return ProductReferenceSheet(
-        product_id=product.id,
-        local_path=str(local_path),
-        width=active_policy.canvas_width,
-        height=active_policy.canvas_height,
-        sha256=sha256,
-        byte_size=len(png_bytes),
-        created_at=_utc_now(),
-        tiles=tiles,
+
+
+def build_product_reference_sheet_set(
+    product: Product,
+    manifest: ProductAssetManifest,
+    *,
+    storage_root: Union[str, Path] = "products",
+    policy: Optional[ProductReferenceSheetPolicy] = None,
+) -> List[ProductReferenceSheet]:
+    """Build ordered sheets covering every eligible verified image once."""
+
+    active_policy = (
+        policy.model_copy(deep=True)
+        if policy is not None
+        else ProductReferenceSheetPolicy()
     )
+    eligible_images = _eligible_reference_images(
+        product,
+        manifest,
+        active_policy,
+    )
+    return [
+        _build_reference_sheet_from_images(
+            product.id,
+            eligible_images[start : start + MAX_REFERENCE_IMAGES],
+            storage_root,
+            active_policy,
+        )
+        for start in range(0, len(eligible_images), MAX_REFERENCE_IMAGES)
+    ]

@@ -181,3 +181,16 @@
 - Design decision: New sheet metadata records byte size while the field remains optional for backward compatibility; verification rejects symlinks/non-files, enforces a 20 MB ceiling, and checks size, SHA-256, full PNG decoding, dimensions, and RGB mode without repairing state.
 - Known limitation: Verification is fail-fast for one local sheet and does not batch failures, relocate files, or compare rendered pixels back to source tiles.
 - Next selected feature: Deterministically partition more than six eligible ranked originals into a complete ordered reference-sheet set.
+
+## Feature 2.18 — Complete reference-sheet sets
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Cover every ranked eligible verified original exactly once by partitioning the complete set into deterministic six-image reference sheets.
+- Main files: `product_reference_sheets.py`, `product_derived_asset_manifest.py`, and their focused test modules.
+- Tests added: 8 focused single-sheet compatibility, 7/12/13-image chunking, pre-chunk eligibility, verification/linkage, empty-input, mutation-isolation, shared-derived-byte provenance, and duplicate-provenance tests.
+- Total tests: 235 passing.
+- Real-world regression: The one-image Soundcore set remained one verified 906,405-byte sheet with the established sheet SHA-256, one tile, complete derived-manifest linkage, and unchanged product identity.
+- Design decision: Filtering and integrity validation happen before row-order chunking; chunks contain at most six images and reuse the Feature 2.15 renderer. Byte-identical derived sheets may share one SHA-addressed PNG while retaining distinct tile provenance, but contradictory SHA/path mappings and duplicate provenance records are rejected.
+- Known limitation: Sheet-set creation is not transactional across filesystem failures and does not discover additional images, apply semantic view balancing, or prioritize sheets creatively.
+- Next selected feature: Stop for owner policy before expanding product-page image discovery or multi-source research, especially allowed structured relationships, HTML image admission, source trust ordering, and cross-page fetch boundaries.
