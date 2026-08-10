@@ -246,3 +246,16 @@
 - Design decision: Reports use categorical `supported`/`corroborated`/`conflicting`/`ambiguous` results and ordered `agrees`/`conflicts`/`ambiguous` observations. A distinct conservatively normalized publisher is required; conflicts dominate; missing claims are neutral; exact stable spec keys and feature IDs are the only joins; Product-family evidence is limited to an explicit safe group-level concept set.
 - Known limitation: Publisher normalization intentionally uses a small no-dependency hostname heuristic rather than a Public Suffix List; comparison performs no unit conversion, tolerance, fuzzy synonyms, source weighting, manufacturer/retailer authority, or mutation of existing `verified` fields.
 - Next selected feature: Stop for owner selection among a small report lookup/serialization/summary follow-up; automatic URL discovery and legal/marketing verification semantics remain deferred.
+
+## Feature 2.23 — Claim verification result lookup
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Resolve one existing verification result by its `AdClaimCandidate`-compatible `spec:<key>` or `feature:<id>` identity without coupling or mutating either model.
+- Main files: `product_claim_verification.py` and `tests/test_product_claim_verification.py`.
+- Tests added: 3 focused spec/feature join, invalid/unknown identity, and deep-copy isolation tests.
+- Total tests: 299 passing.
+- Real-world regression: All seven primary-only Soundcore `AdClaimCandidate` IDs resolved one-to-one to the seven `supported` report results for unchanged product ID `soundcore-com-group-products-a31x1021`.
+- Design decision: `resolve_claim_verification_result` accepts the established candidate ID string, performs exact deterministic lookup only, returns a deep copy, and raises a dedicated error for malformed or unknown IDs.
+- Known limitation: Lookup is intentionally single-result and exact-ID only; it does not merge models, create bulk view models, persist reports, or add verification state to ad claims.
+- Next selected feature: Stop at the YAGNI/policy boundary; serialization and summary APIs should be added only for a concrete consumer, while automatic discovery and authority policy remain deferred.

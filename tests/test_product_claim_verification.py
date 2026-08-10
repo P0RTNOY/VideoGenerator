@@ -21,9 +21,11 @@ from product_claim_verification import (
     ClaimVerificationObservation,
     ClaimVerificationResult,
     ClaimVerificationSourceSummary,
+    ClaimVerificationLookupError,
     DuplicatePrimaryClaimError,
     ProductClaimVerificationReport,
     generate_product_claim_verification_report,
+    resolve_claim_verification_result,
 )
 from product_source_research import (
     MultiSourceProductResearch,
@@ -912,6 +914,75 @@ class ProductClaimVerificationReportTests(unittest.TestCase):
                 primary_source_url="https://primary.example/product",
                 claim_results=[result, result.model_copy(deep=True)],
             )
+
+
+class ClaimVerificationLookupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        source_url = "https://primary.example/product"
+        self.primary = researched_product(
+            source_url=source_url,
+            specs=[
+                ProductSpec(
+                    key="water_resistance",
+                    label="Water Resistance",
+                    value="IP67",
+                )
+            ],
+            features=[
+                ProductFeature(
+                    id="floating-design",
+                    name="Floating design",
+                )
+            ],
+        )
+        self.report = generate_product_claim_verification_report(
+            MultiSourceProductResearch(
+                primary_requested_url=source_url,
+                primary_product=self.primary,
+            )
+        )
+
+    def test_spec_and_feature_results_resolve_by_ad_claim_candidate_id(self) -> None:
+        candidate_ids = [
+            candidate.id
+            for candidate in generate_ad_claim_candidates(self.primary)
+        ]
+
+        resolved = [
+            resolve_claim_verification_result(self.report, candidate_id)
+            for candidate_id in candidate_ids
+        ]
+
+        self.assertEqual(
+            [result.claim_id for result in resolved],
+            ["spec:water_resistance", "feature:floating-design"],
+        )
+
+    def test_lookup_returns_an_isolated_copy(self) -> None:
+        resolved = resolve_claim_verification_result(
+            self.report,
+            "spec:water_resistance",
+        )
+
+        self.assertEqual(resolved, self.report.claim_results[0])
+        self.assertIsNot(resolved, self.report.claim_results[0])
+        resolved.primary_value = "changed"
+        self.assertEqual(self.report.claim_results[0].primary_value, "IP67")
+
+    def test_invalid_or_unknown_claim_ids_fail_cleanly(self) -> None:
+        for invalid_id in ("", " ", 42):
+            with self.subTest(invalid_id=invalid_id):
+                with self.assertRaisesRegex(
+                    ClaimVerificationLookupError,
+                    "non-empty string",
+                ):
+                    resolve_claim_verification_result(self.report, invalid_id)
+
+        with self.assertRaisesRegex(
+            ClaimVerificationLookupError,
+            "unknown claim verification result: spec:missing",
+        ):
+            resolve_claim_verification_result(self.report, "spec:missing")
 
 
 if __name__ == "__main__":

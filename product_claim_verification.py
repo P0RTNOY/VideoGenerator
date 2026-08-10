@@ -75,6 +75,10 @@ class DuplicatePrimaryClaimError(ValueError):
     """Raised when primary claim identities cannot be joined deterministically."""
 
 
+class ClaimVerificationLookupError(ValueError):
+    """Raised when a report result cannot be resolved by claim ID."""
+
+
 class ClaimVerificationObservation(ProductModel):
     """One relevant supplementary claim and its deterministic comparison."""
 
@@ -545,4 +549,22 @@ def generate_product_claim_verification_report(
         primary_source_url=primary_source_url,
         claim_results=claim_results,
         source_summaries=source_summaries,
+    )
+
+
+def resolve_claim_verification_result(
+    report: ProductClaimVerificationReport,
+    claim_id: str,
+) -> ClaimVerificationResult:
+    """Resolve one existing claim result by AdClaimCandidate-compatible ID."""
+
+    if not isinstance(claim_id, str) or not claim_id.strip():
+        raise ClaimVerificationLookupError(
+            "claim verification result ID must be a non-empty string"
+        )
+    for result in report.claim_results:
+        if result.claim_id == claim_id:
+            return result.model_copy(deep=True)
+    raise ClaimVerificationLookupError(
+        f"unknown claim verification result: {claim_id}"
     )
