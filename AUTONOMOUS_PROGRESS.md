@@ -479,3 +479,19 @@
 - Soundcore regression: An 8-second raw Soundcore clip with provider audio is visually approved only for the manually supplied 1200–4100ms span. The 2900ms contiguous range satisfies the 2500ms Storyboard intent, while provider audio remains explicitly unauthorized and mandatory-discard material.
 - Known limitation: Review attribution is a free-form actor string, persistence is cooperative local JSON rather than signed audit storage, and exact technical integrity plus human judgment cannot prove rights, legality, claim correctness, wider Campaign approval, or final-ad quality. Handoff verification occurs immediately before return, but a future Editing consumer must reverify again at its own byte-consumption boundary.
 - Next selected feature: Design only Feature 4.9, a durable provider-neutral Editing Plan that chooses exact segments from approved handoff ranges and resolves overlays plus verified editing-audio assets. Do not implement Editing, FFmpeg rendering, or a final ad without owner approval.
+
+## Feature 4.9A — Verified Editing audio assets
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Ingest explicit local MP3/WAV music or SFX into verified product-scoped content-addressed storage and expose a strict runtime manifest for later Editing without adding network, generation, licensing, or voice-over behavior.
+- Main files: `editing_audio_assets.py` and `tests/test_editing_audio_assets.py`.
+- Tests added: 13 focused MP3/WAV ingestion, real decoded metadata, content/kind identity, filename independence, duplicate-byte storage reuse, music/SFX typing, unsupported/corrupt/empty/non-audio rejection, pre-side-effect metadata validation, source immutability, consumer-time byte/metadata integrity, strict rights/network/voice-over exclusion, frozen manifest extension, product/kind/duplicate resolution, and human-readable product-scoped JSON round-trip tests.
+- Total tests: 604 passing.
+- Format decision: V1 admits exactly one decodable audio stream and no video, with MP3/MP3 or WAV/PCM content established from ffprobe rather than filename extension. AAC/M4A and every other container remain unsupported.
+- Identity/storage decision: Logical IDs use `editing-audio:<kind>:<sha256>`, while exact bytes are shared by SHA at `<storage-root>/<product-id>/assets/editing/audio/<sha256>.<mp3|wav>`. Thus identical bytes may be explicitly classified as music and SFX without duplicating storage or deriving identity from filenames.
+- Manifest decision: `EditingAudioManifest` is a frozen strict product-scoped tuple catalog whose entries retain the current verified local path for runtime resolution. Future Editing plans snapshot only logical ID, kind, SHA, and technical metadata; they never persist these paths.
+- Integrity decision: Ingestion validates logical metadata before filesystem effects, reads source bytes without modifying the source, probes and fully decodes the exact bytes, captures conservative integer-millisecond duration plus codec/channels/sample rate, and stores byte-for-byte. Consumer resolution revalidates model structure, byte size, SHA, container, codec, duration, channels, and sample rate.
+- Rights/provider decision: Source labels are caller-authored provenance only. Models contain no licensing, commercial-use, URL/download, provider, generated-music, speech, or voice-over assertion, and the module performs no network or paid operation.
+- Known limitation: The manifest is cooperative local JSON rather than a signed catalog or database, MP3 encoder delay is retained in probed duration, and technical validation does not establish quality, loudness, synchronization suitability, or usage rights.
+- Next selected feature: Feature 4.9B, the approved immutable path-free EditingPlan over exact current EditingSourceHandoffs and optional verified audio snapshots.
