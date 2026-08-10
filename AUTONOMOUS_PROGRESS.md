@@ -155,3 +155,16 @@
 - Design decision: The standard policy uses 64-pixel margins, 32-pixel gaps, white RGB background, 512×512 input eligibility, fixed row-major grids, contain-only LANCZOS downscaling, no upscaling or annotations, and SHA-addressed PNG storage under product-scoped derived assets.
 - Known limitation: Reference sheets are single-sheet outputs, do not persist a separate derived-asset manifest, inspect content semantics, select creative views, embed rights, or support alternate output formats.
 - Next selected feature: Link generated reference-sheet metadata into a strict product-scoped derived-asset manifest without changing rendering or discovery policy.
+
+## Feature 2.16 — Derived-asset manifest linkage
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Persist product reference-sheet metadata separately while validating every tile back to its exact original downloaded-asset identity.
+- Main files: `product_derived_asset_manifest.py`, `tests/test_product_derived_asset_manifest.py`.
+- Tests added: 10 focused schema, product-binding, duplicate-identity, source-ID, source-hash, source-path, revalidation, UTF-8 persistence, malformed-JSON, and mutation-isolation tests.
+- Total tests: 217 passing.
+- Real-world regression: The Soundcore original, 1×1 reference sheet, and derived manifest round-tripped through UTF-8 JSON; the tile retained the established ProductImage ID, original SHA-256/path linkage, reference-sheet SHA-256 `7feb5befb9604920f0073181826ebc55d2741bfa6b05c3dca43518018b15450e`, and product identity.
+- Design decision: Derived metadata lives in a separate versioned manifest to avoid changing the original-asset schema or creating circular dependencies; builder/revalidation APIs compare tile source ID, SHA-256, and local path against `ProductAssetManifest`.
+- Known limitation: Standalone structural loading cannot prove current source or derived-file integrity until the caller supplies the original manifest for linkage revalidation.
+- Next selected feature: Add fail-fast local integrity verification for persisted reference-sheet PNGs before downstream use.
