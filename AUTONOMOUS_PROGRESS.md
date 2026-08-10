@@ -575,3 +575,18 @@
 - Persistence decision: Intent JSON uses UTF-8, indentation, a trailing newline, and same-directory fsync plus atomic replacement. Saving performs no generation, review, download, or provider action.
 - Known limitation: Motion wording remains caller-authored and is not automatically judged for feasibility or safety. Hero approval remains a separate runtime precondition for building a VideoShotRequest, so storing intent alone never authorizes generation.
 - Next selected feature: Feature 5.0B, the mutable reference-only AdProductionRun workspace document with atomic revisioned persistence and local locking.
+
+## Feature 5.0B — Local Ad Production Run workspace
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Make one caller-named local project equal one production run whose mutable `run.json` records only durable document references and the latest operation diagnostic, never workflow status or copied domain objects.
+- Main files: `ad_production_run.py` and `tests/test_ad_production_run.py`.
+- Tests added: 14 focused grouped tests covering strict project slugs, revision-zero creation, absence of stored status, normalized workspace-relative paths, reference-only shape, dependency-aware invalidation, per-shot isolation, no file deletion, latest-only diagnostics, exact workspace layout, human-readable round-trip, monotonic optimistic revisions, idempotent saves, atomic failure preservation, real lock exclusion, symlink rejection, structural bypass, and cross-project rebinding prevention.
+- Total tests: 692 passing.
+- Model decision: `AdProductionRun` is a frozen strict in-memory value with schema version, project slug, revision, optional Product input, typed `{id, path}` references, ordered per-shot reference slots, and one latest diagnostic. `path` is always normalized POSIX syntax relative to the workspace root; absolute paths, traversal, URI paths, and backslashes are rejected.
+- Invalidation decision: Pure attach helpers clear only dependent run references. Product or Campaign changes preserve independent files and references where valid; a changed shot reference clears later work for only that shot plus global Editing/final references. Nothing deletes or rewrites referenced artifacts, reviews, media, or domain documents.
+- Persistence decision: `<workspace>/projects/<project-id>/run.json` is protected by a cooperative POSIX `flock`, strict project-directory checks, an independently supplied expected project ID, optimistic expected revision, same-directory fsync plus atomic replacement, and idempotent no-op detection. A successful mutation increments revision exactly once.
+- Safety decision: The save boundary revalidates models created through unchecked copy APIs and separately verifies the expected workspace project ID, preventing a stale or rebound candidate from overwriting another project with a coincident revision.
+- Known limitation: Locking uses POSIX `fcntl` and therefore targets the current macOS/Linux local engine rather than Windows. References prove orchestration lineage only after Feature 5.0C loads and validates their target documents.
+- Next selected feature: Feature 5.0C, deterministic top-level and per-shot status derivation from the current referenced documents and review authority.
