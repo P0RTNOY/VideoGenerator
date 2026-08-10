@@ -233,3 +233,16 @@
 - Design decision: The primary Product remains authoritative and isolated. Supplementary results contain either a complete independent Product plus `matched`/`not_matched`/`ambiguous` reconciliation or a structured failure. Exact normalized brand plus distinctive canonical-name tokens or a shared normalized model number can match; generic category names and SKUs cannot. Group-to-specific-variant matches retain `product_family` scope rather than replacing identity.
 - Known limitation: Reconciliation has no manufacturer/retailer authority, GTIN field, fuzzy entity matching, retry/cache policy, automatic URL discovery, claim corroboration, conflict resolution, or cross-source asset aggregation.
 - Next selected feature: Design multi-source claim corroboration and stop for owner policy on verification meaning, source sufficiency/authority, qualifier compatibility, and conflict handling.
+
+## Feature 2.22 — Multi-source claim verification report
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Derive a strict, explanatory corroboration report for primary Product claims using only independent, successfully reconciled supplementary Products without mutating research or ad-claim data.
+- Main files: `product_claim_verification.py` and `tests/test_product_claim_verification.py`.
+- Tests added: 21 focused primary-only, exact spec/feature, publisher independence, source-admission, numeric/unit formatting, no-conversion/tolerance, qualifier, compound-condition, feature-context, product-family, conflict-precedence, missing/supplementary-only, evidence, mutation, ordering, serialization, malformed-state, and duplicate-identity tests.
+- Total tests: 296 passing.
+- Real-world regression: Primary-only Soundcore research retained product ID `soundcore-com-group-products-a31x1021`, name `Select 4 Go`, four specs, three features, the existing seven ad claim IDs, and one 800×600 Open Graph image; all seven report results were `supported`, with no supplementary source discovered or fetched.
+- Design decision: Reports use categorical `supported`/`corroborated`/`conflicting`/`ambiguous` results and ordered `agrees`/`conflicts`/`ambiguous` observations. A distinct conservatively normalized publisher is required; conflicts dominate; missing claims are neutral; exact stable spec keys and feature IDs are the only joins; Product-family evidence is limited to an explicit safe group-level concept set.
+- Known limitation: Publisher normalization intentionally uses a small no-dependency hostname heuristic rather than a Public Suffix List; comparison performs no unit conversion, tolerance, fuzzy synonyms, source weighting, manufacturer/retailer authority, or mutation of existing `verified` fields.
+- Next selected feature: Stop for owner selection among a small report lookup/serialization/summary follow-up; automatic URL discovery and legal/marketing verification semantics remain deferred.
