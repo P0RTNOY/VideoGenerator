@@ -195,7 +195,9 @@ def _verified_image_properties(data: bytes) -> tuple:
     return width, height, image_format, mime_type, extension
 
 
-def _product_directory_name(product_id: str) -> str:
+def product_asset_directory_name(product_id: str) -> str:
+    """Return the deterministic safe directory name used for Product assets."""
+
     cleaned = product_id.strip()
     if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?", cleaned):
         return cleaned
@@ -226,7 +228,7 @@ def _store_original(
     root = Path(storage_root)
     directory = (
         root
-        / _product_directory_name(product_id)
+        / product_asset_directory_name(product_id)
         / "assets"
         / "originals"
     )
@@ -281,10 +283,10 @@ def _store_original(
                 ) from error
 
 
-def verify_downloaded_product_image(
+def read_verified_product_image_bytes(
     asset: DownloadedProductImage,
-) -> DownloadedProductImage:
-    """Fail if a stored original no longer matches its recorded metadata."""
+) -> bytes:
+    """Read one stored original only after all recorded metadata matches."""
 
     path = Path(asset.local_path)
     try:
@@ -352,6 +354,15 @@ def verify_downloaded_product_image(
             "Downloaded image MIME type does not match its metadata."
         )
 
+    return data
+
+
+def verify_downloaded_product_image(
+    asset: DownloadedProductImage,
+) -> DownloadedProductImage:
+    """Fail if a stored original no longer matches its recorded metadata."""
+
+    read_verified_product_image_bytes(asset)
     return asset.model_copy(deep=True)
 
 

@@ -142,3 +142,16 @@
 - Design decision: Eligibility requirements default to no constraints, integrity failures remain errors, and results report only measurable facts plus stable violation codes; the engine does not choose universal quality thresholds or aesthetic labels.
 - Known limitation: The evaluator does not inspect transparency or visual content, choose requirements for a use case, aggregate a set, transform assets, or imply advertising/license suitability.
 - Next selected feature: Stop for owner policy before derived reference-sheet generation, which requires choices for canvas/layout, resizing or padding, background, annotations, output format, and whether use-case eligibility thresholds should be standardized.
+
+## Feature 2.15 — Verified product reference sheets
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Render up to six ranked, eligible, integrity-verified originals into a deterministic, product-bound technical PNG reference sheet with complete tile provenance.
+- Main files: `product_reference_sheets.py`, `product_image_downloads.py`, `tests/test_product_reference_sheets.py`.
+- Tests added: 19 focused grid, ordering, eligibility, contain-fit, no-upscale, alpha, background, format, deterministic-hash, provenance, mutation, integrity, collision, filesystem, policy, and compatibility tests.
+- Total tests: 207 passing.
+- Real-world regression: The sole accepted Soundcore WebP produced a 2048×2048 1×1 PNG with SHA-256 `7feb5befb9604920f0073181826ebc55d2741bfa6b05c3dca43518018b15450e`; its native 2000×2000 pixels were downscaled without crop to the centered 1920×1920 tile, source provenance remained linked, original bytes were unchanged, and product identity plus all seven ad claim IDs remained stable.
+- Design decision: The standard policy uses 64-pixel margins, 32-pixel gaps, white RGB background, 512×512 input eligibility, fixed row-major grids, contain-only LANCZOS downscaling, no upscaling or annotations, and SHA-addressed PNG storage under product-scoped derived assets.
+- Known limitation: Reference sheets are single-sheet outputs, do not persist a separate derived-asset manifest, inspect content semantics, select creative views, embed rights, or support alternate output formats.
+- Next selected feature: Link generated reference-sheet metadata into a strict product-scoped derived-asset manifest without changing rendering or discovery policy.
