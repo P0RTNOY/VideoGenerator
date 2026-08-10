@@ -545,3 +545,18 @@
 - Scope decision: Approval authorizes only the exact final artifact for the exact Campaign context. Models contain no rights, licensing, legal, regulatory, platform, geography, media-buy, account, role, or authentication state.
 - Known limitation: Reviewer identity remains attribution-only, local JSON append safety is cooperative rather than signed storage, and manual review cannot prove rights, factual truth, legal compliance, or suitability for a particular distribution channel. State resolution deliberately reports pending rather than silently repairing stale final or source artifacts.
 - Next selected feature: Feature 4.10B, an ephemeral CampaignDeliverableHandoff that rechecks this exact approval and all transitive authority at consumption time.
+
+## Feature 4.10B — Ephemeral Campaign deliverable handoff
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Expose one exact, currently approved final Campaign artifact to a downstream runtime consumer only while its final and transitive source authority remains current.
+- Main files: `campaign_deliverable.py` and `tests/test_campaign_deliverable.py`.
+- Tests added: 8 focused grouped tests covering all 21 approved requirements across approved/pending/rejected decisions, stale final bytes, changed Plan or review context, revoked or stale source reviews, resolved runtime paths, build-time and consumer-time SHA/metadata checks, exact domain/review bindings, post-handoff mutation, strict excluded scope, non-persistence, mutation isolation, structural-bypass rejection, and the Soundcore-shaped deliverable.
+- Total tests: 669 passing.
+- Authorization decision: `build_campaign_deliverable_handoff()` reconstructs the exact current Feature 4.10A context, which revalidates the edited artifact and every current Feature 4.8 source authorization, then requires exact equality with the durable review history and its latest decision to be `approved_final_campaign_deliverable`.
+- Runtime decision: The frozen strict handoff carries only Product/Campaign/Storyboard/Plan/artifact/review identities plus one resolved local final-artifact handle and its exact SHA and technical metadata. It contains no copied domain objects, source/Hero media, review history, rights, licensing, legal, platform, geography, media-buy, or upload state.
+- Consumption decision: Construction rereads the exact edited-ad bytes immediately before returning the handle. `read_verified_campaign_deliverable_bytes()` independently revalidates strict handoff structure, current SHA, MP4/H.264/AAC metadata, 720x1280 dimensions, duration, one controlled audio stream, full decode, and a final reread before returning bytes.
+- Persistence decision: The handoff is deliberately ephemeral and has no save/load API. Durable authority remains the EditingArtifact, EditingPlan, and FinalAdReviewHistory; consumers must rebuild authorization rather than cache a handoff as approval truth.
+- Known limitation: This boundary authorizes use of one exact Campaign deliverable but does not establish rights, legal compliance, factual truth, distribution-channel fitness, account access, or successful export/publishing. A consumer that retains returned bytes assumes responsibility for what happens after the verified read boundary.
+- Next selected feature: Design only Feature 5.0, an end-to-end ad production orchestration layer. Do not implement it without owner approval.
