@@ -1210,6 +1210,25 @@ class ProductResearchFetchTests(unittest.TestCase):
         )
         response.raise_for_status.assert_called_once_with()
 
+    def test_research_product_page_exposes_same_fetch_and_product_once(self) -> None:
+        session = Mock()
+        response = Mock()
+        response.url = "https://shop.example/products/trail-speaker"
+        response.headers = {"Content-Type": "text/html"}
+        response.text = fixture_text("jsonld_product.html")
+        session.get.return_value = response
+
+        researched_page = product_research.research_product_page(
+            "https://shop.example/go/trail-speaker",
+            timeout=9,
+            session=session,
+        )
+
+        self.assertEqual(researched_page.url, response.url)
+        self.assertEqual(researched_page.html, response.text)
+        self.assertEqual(researched_page.product.name, "Trail Speaker")
+        session.get.assert_called_once()
+
     def test_invalid_urls_are_rejected_before_request(self) -> None:
         research = product_research
         session = Mock()

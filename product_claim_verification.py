@@ -211,7 +211,9 @@ def _final_source_url(product: Product, fallback: str) -> str:
     return fallback
 
 
-def _normalize_publisher_domain(url: str) -> Optional[str]:
+def normalize_publisher_domain(url: str) -> Optional[str]:
+    """Return the conservative publisher identity used for source independence."""
+
     hostname = urlsplit(url).hostname
     if not hostname:
         return None
@@ -232,6 +234,9 @@ def _normalize_publisher_domain(url: str) -> Optional[str]:
     ):
         return ".".join(labels[-3:])
     return ".".join(labels[-2:])
+
+
+_normalize_publisher_domain = normalize_publisher_domain
 
 
 def _normalize_number_token(match: re.Match) -> str:

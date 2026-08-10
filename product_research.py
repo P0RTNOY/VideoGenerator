@@ -78,6 +78,13 @@ class FetchedPage:
 
 
 @dataclass(frozen=True)
+class ResearchedProductPage:
+    url: str
+    html: str
+    product: Product
+
+
+@dataclass(frozen=True)
 class PageProductSelection:
     entity: Dict[str, Any]
     variant: Optional[Dict[str, Any]] = None
@@ -152,8 +159,22 @@ def research_product(
 ) -> Product:
     """Fetch and deterministically extract one product page."""
 
+    return research_product_page(url, timeout=timeout, session=session).product
+
+
+def research_product_page(
+    url: str,
+    timeout: float = 15,
+    session: Any = None,
+) -> ResearchedProductPage:
+    """Fetch once and expose both extracted Product and source HTML."""
+
     page = fetch_product_page(url, timeout=timeout, session=session)
-    return research_product_from_html(page.html, page.url)
+    return ResearchedProductPage(
+        url=page.url,
+        html=page.html,
+        product=research_product_from_html(page.html, page.url),
+    )
 
 
 def _clean_text(value: Any) -> Optional[str]:
