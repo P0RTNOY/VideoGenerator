@@ -297,3 +297,16 @@
 - Design decision: The helper accepts only exact `accepted_url` values already present in the matching supplementary discovery result, rejects duplicates and cross-product/cross-primary combinations before research, caps selection through the existing three-source constant, and preserves proposal order rather than caller or search rank. An explicit empty selection runs Feature 2.21 in primary-only mode. The helper returns the existing `MultiSourceProductResearch` model and introduces no new aggregate or verification state.
 - Known limitation: Selected pages are intentionally researched again through Feature 2.21 because that established API is URL-based; there is no cache or reuse of discovery-time HTML/Product objects. The helper does not persist selection, invoke claim verification, merge products, mutate `verified`, or infer approval.
 - Next selected feature: Stop. Automatically feeding the resulting supplementary research into claim verification or assigning marketing/legal meaning to corroboration would cross the approved automatic-use and verification-policy boundary.
+
+## Feature 3.3 — Selected discovery source verification
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Build an isolated Feature 2.21-compatible research bundle from explicitly selected, already researched supplementary discovery proposals and derive the existing Feature 2.22 verification report without refetching any selected page.
+- Main files: `product_discovery_orchestration.py` and `tests/test_product_discovery_verification.py`.
+- Tests added: 10 focused primary-only, one/two-source corroboration, conflict precedence, same-publisher, qualifier, supplementary-only exclusion, selection validation, cross-result binding, proposal/source order, requested/final URL provenance, no-refetch spies, evidence freshness, deep-copy/mutation isolation, strict serialization, unchanged verified flags, and unchanged ad-claim tests.
+- Total tests: 370 passing.
+- Real-world regression: No live search or supplementary page fetch was needed for this pure integration feature. The existing Soundcore demo, product research, claim, and image regression suites remain green; the pre-existing `soundcore_researched_23.json` evaluation artifact remains intentionally untracked and was not used as fresh evidence.
+- Design decision: `verify_selected_discovery_sources` accepts only explicit accepted proposal URLs, resolves them in proposal order, binds every selected proposal back to exactly one accepted exact-product candidate, reuses deep-copied discovery-time Products and reconciliation, preserves discovered URL as requested provenance and the researched Product source as final provenance, and delegates all status semantics unchanged to Feature 2.22. The existing Feature 3.2 fetch-oriented API remains available and behavior-compatible.
+- Known limitation: Reuse is intentionally limited to the supplied in-memory discovery result. There is no persistent cache, freshness policy, source weighting, legal/marketing approval, claim expansion, mutation of Product verification flags, or automatic participation by unselected proposals.
+- Next selected feature: Add the approved small pure claim-review projection that joins existing ad-claim candidates to verification results without introducing UI, Campaign, or approval semantics.
