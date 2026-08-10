@@ -560,3 +560,18 @@
 - Persistence decision: The handoff is deliberately ephemeral and has no save/load API. Durable authority remains the EditingArtifact, EditingPlan, and FinalAdReviewHistory; consumers must rebuild authorization rather than cache a handoff as approval truth.
 - Known limitation: This boundary authorizes use of one exact Campaign deliverable but does not establish rights, legal compliance, factual truth, distribution-channel fitness, account access, or successful export/publishing. A consumer that retains returned bytes assumes responsibility for what happens after the verified read boundary.
 - Next selected feature: Design only Feature 5.0, an end-to-end ad production orchestration layer. Do not implement it without owner approval.
+
+## Feature 5.0A — Durable Shot Video intent
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Persist one exact, explicitly authored motion and generation-duration decision for a prepared Storyboard shot without invoking or selecting a provider.
+- Main files: `shot_video_intent.py`, `video_shot_request.py`, and `tests/test_shot_video_intent.py`.
+- Tests added: 9 focused grouped tests covering deterministic content identity, exact Product/Campaign/Storyboard/asset-plan/shot binding, selected claim constraints, strict finite duration, immutable nested motion, structural-bypass rejection, atomic human-readable JSON round-trip, mutation isolation, forbidden runtime/provider state, and the Soundcore water-feature example.
+- Total tests: 678 passing.
+- Identity decision: `shot-video-intent:<sha256>` hashes the complete path-free durable document: schema version, Product/Campaign/Storyboard/asset-plan/shot IDs, requested generation duration, every authored motion channel, and the ordered motion-relevant claim IDs. Paths, timestamps, Hero artifacts/reviews, prompts, providers, and model IDs are excluded.
+- Context decision: Creation and validation recheck current Product, Campaign, Storyboard, and asset-plan bindings; require exactly one matching Storyboard shot and prepared asset selection; and restrict motion-relevant claims to unique ordered IDs selected by that shot with current Campaign snapshots.
+- Immutability decision: The existing `VideoMotionIntent` is now frozen as well as strict, so a durable ShotVideoIntent cannot expose a mutable nested motion object. Intent validation reconstructs canonical identity and distrusts validation-bypassing model copies.
+- Persistence decision: Intent JSON uses UTF-8, indentation, a trailing newline, and same-directory fsync plus atomic replacement. Saving performs no generation, review, download, or provider action.
+- Known limitation: Motion wording remains caller-authored and is not automatically judged for feasibility or safety. Hero approval remains a separate runtime precondition for building a VideoShotRequest, so storing intent alone never authorizes generation.
+- Next selected feature: Feature 5.0B, the mutable reference-only AdProductionRun workspace document with atomic revisioned persistence and local locking.

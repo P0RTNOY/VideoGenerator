@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Literal, Optional, Sequence
 
 from PIL import Image, UnidentifiedImageError
-from pydantic import Field, ValidationError, model_validator
+from pydantic import ConfigDict, Field, ValidationError, model_validator
 
 from campaign import AdCampaign, AspectRatio, CampaignClaimSnapshot
 from hero_frame_artifact import HeroFrameArtifact
@@ -31,6 +31,8 @@ ProviderAudioDisposition = Literal["discard_before_editing"]
 
 class VideoMotionIntent(ProductModel):
     """Explicit authored motion channels; never a source of Product facts."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
 
     subject_motion: Optional[NonEmptyStr] = None
     environment_motion: Optional[NonEmptyStr] = None
