@@ -194,3 +194,16 @@
 - Design decision: Filtering and integrity validation happen before row-order chunking; chunks contain at most six images and reuse the Feature 2.15 renderer. Byte-identical derived sheets may share one SHA-addressed PNG while retaining distinct tile provenance, but contradictory SHA/path mappings and duplicate provenance records are rejected.
 - Known limitation: Sheet-set creation is not transactional across filesystem failures and does not discover additional images, apply semantic view balancing, or prioritize sheets creatively.
 - Next selected feature: Stop for owner policy before expanding product-page image discovery or multi-source research, especially allowed structured relationships, HTML image admission, source trust ordering, and cross-page fetch boundaries.
+
+## Feature 2.19 — Structured ImageObject resolution
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Resolve only product-linked schema.org ImageObjects already present in the fetched HTML document while preserving selected Product/ProductGroup and variant boundaries.
+- Main files: `product_research.py`, `product_image_downloads.py`, their focused test modules, and `tests/fixtures/product_image_objects.html`.
+- Tests added: 10 focused inline/list ImageObject, same-graph and cross-script reference, URL priority, malformed/thumbnail exclusion, sibling/ambiguous-variant isolation, duplicate trust, no-extra-fetch, mutation-safety, and controlled-downloader integration tests.
+- Total tests: 245 passing.
+- Real-world regression: The Soundcore page retained one 800×600 Open Graph image at confidence 0.80, with no product-linked ImageObject exposed; product ID `soundcore-com-group-products-a31x1021`, canonical name `Select 4 Go`, four specs, three features, and all seven ad claim IDs remained unchanged.
+- Design decision: A same-document `@id` index contains only typed ImageObjects with an explicit valid `contentUrl` or `url`; selected-entity references resolve one edge only, use `contentUrl` before `url`, receive confidence 0.90, and never trigger HTTP. Direct selected-entity images retain confidence 0.95 and win URL-level deduplication before explicit dimension completeness.
+- Known limitation: Resolution does not use `thumbnailUrl` alone, follow recursive graph relationships, fetch JSON-LD links, infer image semantics or rights, or inspect arbitrary HTML images.
+- Next selected feature: Constrained same-page HTML primary-product gallery discovery under the approved generic DOM-topology policy.

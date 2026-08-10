@@ -25,7 +25,11 @@ from product_identity import slugify_identifier
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
 ACCEPTED_SOURCE_TYPES = frozenset(
-    {"json_ld_product_image", "open_graph_product_image"}
+    {
+        "json_ld_product_image",
+        "json_ld_product_image_object",
+        "open_graph_product_image",
+    }
 )
 DOWNLOAD_HEADERS = {
     "User-Agent": (

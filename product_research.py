@@ -39,6 +39,7 @@ CONFIDENCE_BY_SOURCE = {
     "feature_section": 0.75,
     "primary_product_claim_list": 0.65,
     "json_ld_product_image": 0.95,
+    "json_ld_product_image_object": 0.90,
     "open_graph_product_image": 0.80,
 }
 
@@ -668,22 +669,36 @@ def build_product_image(
     )
 
 
+def _structured_image_url(image_data: Dict[str, Any]) -> Optional[str]:
+    return _clean_text(image_data.get("contentUrl")) or _clean_text(
+        image_data.get("url")
+    )
+
+
 def _extract_jsonld_images(
     product_data: Dict[str, Any],
     source_url: str,
+    image_objects_by_id: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[ProductImage]:
     images: List[ProductImage] = []
     for item in _as_list(product_data.get("image")):
+        source_type = "json_ld_product_image"
         if isinstance(item, dict):
-            image_url = (
-                item.get("contentUrl")
-                or item.get("url")
-                or item.get("thumbnailUrl")
-            )
-            if not image_url and _schema_type_matches(item.get("@type"), "ImageObject"):
-                image_url = item.get("@id")
-            width = item.get("width")
-            height = item.get("height")
+            image_data = item
+            image_url = _structured_image_url(item)
+            if not image_url:
+                reference_id = _clean_text(item.get("@id"))
+                resolved = (
+                    image_objects_by_id.get(urljoin(source_url, reference_id))
+                    if image_objects_by_id is not None and reference_id
+                    else None
+                )
+                if resolved is not None:
+                    image_data = resolved
+                    image_url = _structured_image_url(resolved)
+                    source_type = "json_ld_product_image_object"
+            width = image_data.get("width")
+            height = image_data.get("height")
         else:
             image_url = item
             width = None
@@ -691,14 +706,31 @@ def _extract_jsonld_images(
         image = build_product_image(
             image_url,
             source_url,
-            "json_ld_product_image",
-            CONFIDENCE_BY_SOURCE["json_ld_product_image"],
+            source_type,
+            CONFIDENCE_BY_SOURCE[source_type],
             width=width,
             height=height,
         )
         if image:
             images.append(image)
     return images
+
+
+def _image_objects_by_id(
+    documents: Sequence[Any],
+    source_url: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Index same-document ImageObjects without following graph relationships."""
+
+    indexed: Dict[str, Dict[str, Any]] = {}
+    for document in documents:
+        for node in _walk_json(document):
+            if not _schema_type_matches(node.get("@type"), "ImageObject"):
+                continue
+            reference_id = _clean_text(node.get("@id"))
+            if reference_id and _structured_image_url(node):
+                indexed.setdefault(urljoin(source_url, reference_id), node)
+    return indexed
 
 
 def _open_graph_image_entries(soup: BeautifulSoup) -> List[Dict[str, str]]:
@@ -763,6 +795,16 @@ def _extract_open_graph_images(
     return images
 
 
+def _image_metadata_quality(image: ProductImage) -> Tuple[float, int, int]:
+    dimension_count = int(image.width is not None) + int(image.height is not None)
+    area = (
+        image.width * image.height
+        if image.width is not None and image.height is not None
+        else 0
+    )
+    return image.confidence or 0, dimension_count, area
+
+
 def _deduplicate_images(images: Sequence[ProductImage]) -> List[ProductImage]:
     deduplicated: List[ProductImage] = []
     indices: Dict[str, int] = {}
@@ -775,7 +817,7 @@ def _deduplicate_images(images: Sequence[ProductImage]) -> List[ProductImage]:
         existing = deduplicated[existing_index]
         preferred = (
             image
-            if (image.confidence or 0) > (existing.confidence or 0)
+            if _image_metadata_quality(image) > _image_metadata_quality(existing)
             else existing
         )
         alternate = existing if preferred is image else image
@@ -1849,6 +1891,7 @@ def research_product_from_html(html: str, source_url: str) -> Product:
 
     soup = BeautifulSoup(html, "html.parser")
     documents = _load_jsonld_documents(soup)
+    image_objects_by_id = _image_objects_by_id(documents, source_url)
     selection = _select_page_product(documents, soup, source_url)
     page_entity_data = selection.entity if selection else {}
     is_product_group = _schema_type_matches(
@@ -2006,7 +2049,11 @@ def research_product_from_html(html: str, source_url: str) -> Product:
             *(
                 image
                 for entity in jsonld_entities
-                for image in _extract_jsonld_images(entity, source_url)
+                for image in _extract_jsonld_images(
+                    entity,
+                    source_url,
+                    image_objects_by_id,
+                )
             ),
             *_extract_open_graph_images(
                 soup,

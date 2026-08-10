@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Atlas Mini | Example Audio</title>
+    <link rel="canonical" href="https://objects.example/products/atlas">
+    <meta property="og:image" content="https://cdn.objects.example/group-inline.jpg">
+    <meta property="og:image:alt" content="Example Audio Atlas Mini">
+    <meta property="og:image:width" content="640">
+    <meta property="og:image:height" content="480">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "url": "https://objects.example/products/atlas",
+            "mainEntity": {"@id": "https://objects.example/products/atlas#green"}
+          },
+          {
+            "@type": "ProductGroup",
+            "url": "https://objects.example/products/atlas",
+            "name": "Example Audio Atlas Mini",
+            "brand": "Example Audio",
+            "category": "Portable Speakers",
+            "image": [
+              {
+                "@type": "ImageObject",
+                "contentUrl": "https://cdn.objects.example/group-inline.jpg",
+                "url": "https://cdn.objects.example/group-inline-fallback.jpg",
+                "width": 1400,
+                "height": "1000"
+              },
+              {
+                "@type": "ImageObject",
+                "url": "/media/group-url-fallback.jpg"
+              },
+              {
+                "@type": "ImageObject",
+                "@id": "https://objects.example/products/atlas#group-reference"
+              },
+              {"@id": "https://objects.example/products/atlas#same-graph-reference"},
+              "https://cdn.objects.example/direct-string.jpg",
+              {
+                "@type": "ImageObject",
+                "thumbnailUrl": "https://cdn.objects.example/thumb-only.jpg"
+              },
+              {
+                "@type": "ImageObject",
+                "contentUrl": {"invalid": true},
+                "url": "https://cdn.objects.example/valid-url-after-malformed-content.jpg"
+              }
+            ],
+            "hasVariant": [
+              {"@id": "https://objects.example/products/atlas#green"},
+              {"@id": "https://objects.example/products/atlas#blue"}
+            ]
+          },
+          {
+            "@type": "ImageObject",
+            "@id": "https://objects.example/products/atlas#same-graph-reference",
+            "contentUrl": "https://cdn.objects.example/same-graph.jpg"
+          },
+          {
+            "@type": "Product",
+            "@id": "https://objects.example/products/atlas#green",
+            "url": "https://objects.example/products/atlas?variant=green",
+            "sku": "ATLAS-GREEN",
+            "color": "Green",
+            "image": [
+              {"@id": "https://metadata.objects.example/images/green"},
+              "https://cdn.objects.example/duplicate.jpg",
+              {"@id": "https://objects.example/products/atlas#duplicate-reference"}
+            ]
+          },
+          {
+            "@type": "Product",
+            "@id": "https://objects.example/products/atlas#blue",
+            "url": "https://objects.example/products/atlas?variant=blue",
+            "sku": "ATLAS-BLUE",
+            "color": "Blue",
+            "image": {"@id": "#blue-reference"}
+          }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      [
+        {
+          "@type": "ImageObject",
+          "@id": "https://objects.example/products/atlas#group-reference",
+          "contentUrl": "https://media.example-cdn.net/group-reference.webp",
+          "url": "https://media.example-cdn.net/group-reference-fallback.webp",
+          "width": "2000",
+          "height": 1500
+        },
+        {
+          "@type": "ImageObject",
+          "@id": "https://metadata.objects.example/images/green",
+          "url": "https://media.example-cdn.net/green-reference.png"
+        },
+        {
+          "@type": "ImageObject",
+          "@id": "https://objects.example/products/atlas#duplicate-reference",
+          "contentUrl": "https://cdn.objects.example/duplicate.jpg",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "@type": "ImageObject",
+          "@id": "https://objects.example/products/atlas#blue-reference",
+          "contentUrl": "https://cdn.objects.example/blue.jpg"
+        },
+        {
+          "@type": "ImageObject",
+          "@id": "https://objects.example/products/atlas#unrelated",
+          "contentUrl": "https://cdn.objects.example/unrelated.jpg"
+        }
+      ]
+    </script>
+  </head>
+  <body><main><h1>Example Audio Atlas Mini</h1></main></body>
+</html>

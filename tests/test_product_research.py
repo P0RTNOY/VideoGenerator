@@ -1,6 +1,7 @@
 import io
 import tempfile
 import unittest
+from copy import deepcopy
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import timezone
 from pathlib import Path
@@ -768,6 +769,173 @@ class ProductGroupResearchTests(unittest.TestCase):
 
 
 class ProductImageResearchTests(unittest.TestCase):
+    def test_product_linked_imageobjects_resolve_with_explicit_metadata(self) -> None:
+        source_url = "https://objects.example/products/atlas?variant=green"
+
+        product = product_research.research_product_from_html(
+            fixture_text("product_image_objects.html"),
+            source_url,
+        )
+
+        by_url = {image.url: image for image in product.images}
+        self.assertIn("https://cdn.objects.example/group-inline.jpg", by_url)
+        self.assertNotIn(
+            "https://cdn.objects.example/group-inline-fallback.jpg",
+            by_url,
+        )
+        self.assertEqual(
+            by_url["https://cdn.objects.example/group-inline.jpg"].width,
+            1400,
+        )
+        self.assertEqual(
+            by_url["https://cdn.objects.example/group-inline.jpg"].height,
+            1000,
+        )
+        self.assertIn(
+            "https://objects.example/media/group-url-fallback.jpg",
+            by_url,
+        )
+        self.assertIn(
+            "https://cdn.objects.example/valid-url-after-malformed-content.jpg",
+            by_url,
+        )
+
+    def test_imageobject_references_resolve_across_same_document_scripts(self) -> None:
+        source_url = "https://objects.example/products/atlas?variant=green"
+
+        product = product_research.research_product_from_html(
+            fixture_text("product_image_objects.html"),
+            source_url,
+        )
+
+        by_url = {image.url: image for image in product.images}
+        group = by_url["https://media.example-cdn.net/group-reference.webp"]
+        variant = by_url["https://media.example-cdn.net/green-reference.png"]
+        self.assertEqual(group.source_type, "json_ld_product_image_object")
+        self.assertEqual(group.confidence, 0.90)
+        self.assertEqual((group.width, group.height), (2000, 1500))
+        self.assertEqual(variant.source_type, "json_ld_product_image_object")
+        self.assertIsNone(variant.width)
+        self.assertIsNone(variant.height)
+        self.assertNotIn(
+            "https://media.example-cdn.net/group-reference-fallback.webp",
+            by_url,
+        )
+
+    def test_imageobject_reference_resolves_within_one_jsonld_graph(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_image_objects.html"),
+            "https://objects.example/products/atlas?variant=green",
+        )
+
+        same_graph = next(
+            image
+            for image in product.images
+            if image.url == "https://cdn.objects.example/same-graph.jpg"
+        )
+        self.assertEqual(same_graph.source_type, "json_ld_product_image_object")
+        self.assertEqual(same_graph.confidence, 0.90)
+
+    def test_thumbnail_malformed_and_unrelated_imageobjects_are_not_admitted(
+        self,
+    ) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_image_objects.html"),
+            "https://objects.example/products/atlas?variant=green",
+        )
+
+        image_urls = {image.url for image in product.images}
+        self.assertNotIn("https://cdn.objects.example/thumb-only.jpg", image_urls)
+        self.assertNotIn("https://cdn.objects.example/unrelated.jpg", image_urls)
+        self.assertTrue(all(isinstance(url, str) for url in image_urls))
+
+    def test_selected_variant_imageobject_does_not_leak_sibling_reference(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_image_objects.html"),
+            "https://objects.example/products/atlas?variant=green",
+        )
+
+        self.assertNotIn(
+            "https://cdn.objects.example/blue.jpg",
+            {image.url for image in product.images},
+        )
+
+    def test_ambiguous_group_does_not_leak_variant_imageobject_references(self) -> None:
+        html = fixture_text("product_image_objects.html").replace(
+            '"mainEntity": {"@id": "https://objects.example/products/atlas#green"}',
+            '"headline": "No selected variant"',
+        )
+
+        product = product_research.research_product_from_html(
+            html,
+            "https://objects.example/products/atlas",
+        )
+
+        image_urls = {image.url for image in product.images}
+        self.assertNotIn(
+            "https://media.example-cdn.net/green-reference.png",
+            image_urls,
+        )
+        self.assertNotIn("https://cdn.objects.example/blue.jpg", image_urls)
+
+    def test_duplicate_image_url_prefers_direct_relationship_and_dimensions(self) -> None:
+        product = product_research.research_product_from_html(
+            fixture_text("product_image_objects.html"),
+            "https://objects.example/products/atlas?variant=green",
+        )
+
+        duplicates = [
+            image
+            for image in product.images
+            if image.url == "https://cdn.objects.example/duplicate.jpg"
+        ]
+        self.assertEqual(len(duplicates), 1)
+        self.assertEqual(duplicates[0].source_type, "json_ld_product_image")
+        self.assertEqual(duplicates[0].confidence, 0.95)
+        self.assertEqual((duplicates[0].width, duplicates[0].height), (1600, 1200))
+
+    def test_imageobject_id_is_never_fetched_as_another_page(self) -> None:
+        session = Mock()
+        response = Mock()
+        response.url = "https://objects.example/products/atlas?variant=green"
+        response.headers = {"Content-Type": "text/html; charset=UTF-8"}
+        response.text = fixture_text("product_image_objects.html")
+        session.get.return_value = response
+
+        product = product_research.research_product(
+            response.url,
+            session=session,
+        )
+
+        self.assertIn(
+            "https://media.example-cdn.net/green-reference.png",
+            {image.url for image in product.images},
+        )
+        session.get.assert_called_once()
+
+    def test_imageobject_resolution_does_not_mutate_parsed_jsonld(self) -> None:
+        source_url = "https://objects.example/products/atlas?variant=green"
+        soup = product_research.BeautifulSoup(
+            fixture_text("product_image_objects.html"),
+            "html.parser",
+        )
+        documents = product_research._load_jsonld_documents(soup)
+        before = deepcopy(documents)
+        selection = product_research._select_page_product(
+            documents,
+            soup,
+            source_url,
+        )
+        index = product_research._image_objects_by_id(documents, source_url)
+
+        product_research._extract_jsonld_images(
+            selection.entity,
+            source_url,
+            index,
+        )
+
+        self.assertEqual(documents, before)
+
     def test_selected_jsonld_entity_images_preserve_metadata_and_provenance(
         self,
     ) -> None:
