@@ -220,3 +220,16 @@
 - Design decision: Admission requires a unique matched H1, a close non-global common ancestor, independent product-detail and gallery/media context, and no excluded review/recommendation/promotion/navigation/badge/variant context. Strict width-descriptor `srcset` selects one largest representation; malformed sets fall back to `data-src`/`src`. HTML candidates use confidence 0.70, deduplicate behind structured and Open Graph sources, and the final page set is capped at 24 in deterministic source order.
 - Known limitation: The extractor deliberately misses galleries without recognizable generic topology, ignores JavaScript/framework state and canvas content, does not interpret density descriptors, and neither infers visual suitability nor image rights.
 - Next selected feature: Stop before cross-page or multi-source image research; the remaining high-value recall expansion requires an owner policy for additional page fetching and source reconciliation.
+
+## Feature 2.21 — Explicit multi-source product research
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Research one caller-supplied primary page and up to three explicitly supplied supplementary pages independently, then reconcile product identity without merging source facts or images.
+- Main files: `product_source_research.py` and `tests/test_product_source_research.py`.
+- Tests added: 20 focused strict-model, exact/ambiguous/unmatched reconciliation, generic-name rejection, model-number conflict/match, SKU neutrality, model-token, group/variant scope, mutation isolation, source limit/order/roles, primary and supplementary failure (including malformed submitted URL provenance), no-merge, claim/evidence/image preservation, serialization, and explicit-fetch tests.
+- Total tests: 275 passing.
+- Real-world regression: Primary-only Soundcore research retained product ID `soundcore-com-group-products-a31x1021`, name `Select 4 Go`, brand `soundcore`, four specs, three features, one 800×600 Open Graph image, and all seven ad claim IDs, with no supplementary URL discovered or fetched.
+- Design decision: The primary Product remains authoritative and isolated. Supplementary results contain either a complete independent Product plus `matched`/`not_matched`/`ambiguous` reconciliation or a structured failure. Exact normalized brand plus distinctive canonical-name tokens or a shared normalized model number can match; generic category names and SKUs cannot. Group-to-specific-variant matches retain `product_family` scope rather than replacing identity.
+- Known limitation: Reconciliation has no manufacturer/retailer authority, GTIN field, fuzzy entity matching, retry/cache policy, automatic URL discovery, claim corroboration, conflict resolution, or cross-source asset aggregation.
+- Next selected feature: Design multi-source claim corroboration and stop for owner policy on verification meaning, source sufficiency/authority, qualifier compatibility, and conflict handling.
