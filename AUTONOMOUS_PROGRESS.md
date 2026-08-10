@@ -347,3 +347,16 @@
 - Design decision: Shot-list position is authoritative order. Each shot may use any unique ordered subset of Campaign-selected claims, and Campaign claims may remain unused. Context validation rechecks the Campaign ID, non-empty/unique shots, claim subset, safe durations, and a total within ±0.5 seconds of the Campaign target before returning an isolated copy.
 - Known limitation: Storyboard core has no overlays, Product data, claim wording, asset references, prompts, provider state, transitions, editing handles, or per-element timing. Duration is intended timeline time only.
 - Next selected feature: Feature 4.2, the approved typed text overlays with claim-ID-only factual overlays and backward-compatible empty overlay lists.
+
+## Feature 4.2 — Storyboard text overlays
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Add typed ordered text intent to Storyboard shots while preventing factual claim wording from being rewritten or copied outside Campaign snapshots.
+- Main files: `storyboard.py`, `demo_campaign_storyboard.py`, and `tests/test_storyboard_overlays.py`.
+- Tests added: 10 focused creative, CTA, product-name, and claim overlay shape; same-shot/Campaign claim binding; order/cardinality; zero-overlay/backward compatibility; claim-wording isolation; snapshot/mutation safety; strict JSON; unchecked-copy bypass; and approved Soundcore domain-demo tests.
+- Total tests: 411 passing.
+- Soundcore domain demo: Built an in-memory 8-second `ugc` Campaign for `soundcore-com-group-products-a31x1021` with the approved water-resistance, playback-time, and floating-design claim IDs, plus ordered 2.5/2.5/3.0-second poolside shots and the approved creative, claim-ID, and product-name overlays. No external call or media persistence occurs.
+- Design decision: Claim overlays contain only a claim ID that must be both Campaign-selected and assigned to the same shot; factual wording/context remains solely in the Campaign snapshot. Creative and CTA overlays require free-form text, while product-name overlays carry neither text nor claim ID. A default empty overlay list preserves Feature 4.1 JSON compatibility.
+- Known limitation: Overlays have shot-level order only, with no timing, styling, localization, rendering, Product-name resolution, snapshot resolution, legal/marketing approval, or NLP policing of free-form creative copy.
+- Next selected feature: Stop at the mandatory owner-review boundary before any Feature 4.3, asset selection, HeroFrameRequest, AI/prompt/media generation, voice-over, editing, or FFmpeg work.

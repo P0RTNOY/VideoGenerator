@@ -4,14 +4,41 @@ import math
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from campaign import AdCampaign
 from product import NonEmptyStr, ProductModel
 
 
 ShotPurpose = Literal["hook", "feature", "lifestyle", "cta"]
+OverlayKind = Literal["claim", "creative", "product_name", "cta"]
 _DURATION_TOLERANCE_SECONDS = 0.5
+
+
+class StoryboardTextOverlay(ProductModel):
+    """Typed text intent that keeps factual wording in Campaign snapshots."""
+
+    kind: OverlayKind
+    text: Optional[NonEmptyStr] = None
+    claim_id: Optional[NonEmptyStr] = None
+
+    @model_validator(mode="after")
+    def require_kind_specific_content(self) -> "StoryboardTextOverlay":
+        if self.kind == "claim":
+            if self.claim_id is None or self.text is not None:
+                raise ValueError(
+                    "claim overlays require claim_id and forbid custom text"
+                )
+        elif self.kind in ("creative", "cta"):
+            if self.text is None or self.claim_id is not None:
+                raise ValueError(
+                    f"{self.kind} overlays require text and forbid claim_id"
+                )
+        elif self.text is not None or self.claim_id is not None:
+            raise ValueError(
+                "product_name overlays forbid custom text and claim_id"
+            )
+        return self
 
 
 class StoryboardShot(ProductModel):
@@ -23,6 +50,7 @@ class StoryboardShot(ProductModel):
     selected_claim_ids: List[NonEmptyStr] = Field(default_factory=list)
     visual_description: NonEmptyStr
     camera_direction: Optional[NonEmptyStr] = None
+    text_overlays: List[StoryboardTextOverlay] = Field(default_factory=list)
 
     @field_validator("duration_seconds", mode="before")
     @classmethod
@@ -65,19 +93,26 @@ def validate_storyboard(
 ) -> Storyboard:
     """Validate Campaign binding, claim use, and timeline duration, then copy."""
 
-    if storyboard.campaign_id != campaign.id:
+    try:
+        validated_storyboard = Storyboard.model_validate(storyboard.model_dump())
+    except ValidationError as error:
         raise StoryboardContextError(
-            f"storyboard campaign ID {storyboard.campaign_id} does not match "
+            f"storyboard must be structurally valid: {error}"
+        ) from error
+
+    if validated_storyboard.campaign_id != campaign.id:
+        raise StoryboardContextError(
+            f"storyboard campaign ID {validated_storyboard.campaign_id} does not match "
             f"Campaign ID {campaign.id}"
         )
-    if not storyboard.shots:
+    if not validated_storyboard.shots:
         raise StoryboardContextError("storyboard must contain at least one shot")
 
     shot_ids = set()
     selected_campaign_claim_ids = set(
         campaign.claim_selection.selected_claim_ids
     )
-    for shot in storyboard.shots:
+    for shot in validated_storyboard.shots:
         if (
             type(shot.duration_seconds) is not float
             or not math.isfinite(shot.duration_seconds)
@@ -99,8 +134,23 @@ def validate_storyboard(
                 raise StoryboardContextError(
                     f"claim {claim_id} in shot {shot.id} is not selected by Campaign"
                 )
+        for overlay in shot.text_overlays:
+            if overlay.kind != "claim":
+                continue
+            if overlay.claim_id not in selected_campaign_claim_ids:
+                raise StoryboardContextError(
+                    f"claim overlay {overlay.claim_id} in shot {shot.id} is not "
+                    "selected by Campaign"
+                )
+            if overlay.claim_id not in shot.selected_claim_ids:
+                raise StoryboardContextError(
+                    f"claim overlay {overlay.claim_id} must be assigned to the "
+                    f"same shot {shot.id}"
+                )
 
-    total_duration = math.fsum(shot.duration_seconds for shot in storyboard.shots)
+    total_duration = math.fsum(
+        shot.duration_seconds for shot in validated_storyboard.shots
+    )
     duration_delta = abs(total_duration - campaign.target_duration_seconds)
     if duration_delta > _DURATION_TOLERANCE_SECONDS:
         raise StoryboardContextError(
@@ -109,7 +159,7 @@ def validate_storyboard(
             f"{_DURATION_TOLERANCE_SECONDS:g}s"
         )
 
-    return storyboard.model_copy(deep=True)
+    return validated_storyboard.model_copy(deep=True)
 
 
 def save_storyboard(
