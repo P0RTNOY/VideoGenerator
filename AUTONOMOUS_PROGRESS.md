@@ -116,3 +116,16 @@
 - Design decision: Verification opens one regular file without following a final symbolic link, applies the immutable 20 MB ceiling, and returns an isolated copy only after bytes and decoded properties match; it never repairs files or rewrites metadata.
 - Known limitation: Verification is fail-fast for one local asset and does not batch results, relocate missing files, quarantine corrupt assets, or attest rights.
 - Next selected feature: Construct a deterministic verified-image set from ranked ProductImages and a manifest without introducing aesthetic or creative suitability judgments.
+
+## Feature 2.13 — Deterministic verified image sets
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Join current researched ProductImages to a product-bound asset manifest and produce a ranked, integrity-checked, exact-deduplicated local image set.
+- Main files: `product_image_sets.py`, `tests/test_product_image_sets.py`.
+- Tests added: 9 focused empty, product-binding, orphan-source, partial-download, ranking, exact-duplicate, integrity, duplicate-ID, and mutation-isolation tests.
+- Total tests: 181 passing.
+- Real-world regression: The Soundcore Product, its one-record manifest, and its downloaded WebP produced one verified selected original with source ID `image-a13f7a58e3b50532`, the established SHA-256 and decoded metadata, and unchanged ad claim IDs.
+- Design decision: The result is an ordered list of isolated `DownloadedProductImage` records rather than another persisted model; existing metadata ranking determines source priority, every manifest record is re-verified, and only identical SHA-256 content is collapsed.
+- Known limitation: The set does not impose minimum dimensions, aspect-ratio/transparency policy, aesthetic suitability, transforms, or structured multi-asset failure reporting.
+- Next selected feature: Evaluate objective image eligibility metadata without deciding universal creative thresholds or aesthetic suitability.
