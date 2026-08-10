@@ -232,6 +232,52 @@ def admit_editing_artifact(
     )
 
 
+def read_verified_editing_artifact_bytes(artifact: EditingArtifact) -> bytes:
+    """Re-read and technically revalidate one exact final Editing artifact."""
+
+    try:
+        validated = EditingArtifact.model_validate(artifact.model_dump())
+    except ValidationError as error:
+        raise EditingArtifactValidationError(
+            f"Editing artifact must be structurally valid: {error}"
+        ) from error
+    source = Path(validated.local_path)
+    try:
+        data = source.read_bytes()
+    except OSError as error:
+        raise EditingArtifactValidationError(
+            f"Editing artifact could not be read: {validated.id}"
+        ) from error
+    if hashlib.sha256(data).hexdigest() != validated.sha256:
+        raise EditingArtifactValidationError(
+            f"Editing artifact SHA-256 changed: {validated.id}"
+        )
+    metadata = inspect_edited_ad(source, validated.duration_ms)
+    expected = {
+        "width": validated.width,
+        "height": validated.height,
+        "duration_ms": validated.duration_ms,
+        "container": validated.container,
+        "video_codec": validated.video_codec,
+        "audio_codec": validated.audio_codec,
+        "audio_stream_count": validated.audio_stream_count,
+    }
+    if metadata != expected:
+        raise EditingArtifactValidationError(
+            f"Editing artifact technical metadata changed: {validated.id}"
+        )
+    try:
+        if source.read_bytes() != data:
+            raise EditingArtifactValidationError(
+                f"Editing artifact changed during verification: {validated.id}"
+            )
+    except OSError as error:
+        raise EditingArtifactValidationError(
+            f"Editing artifact could not be reread: {validated.id}"
+        ) from error
+    return data
+
+
 def save_editing_artifact(artifact: EditingArtifact, path: Union[str, Path]) -> Path:
     try:
         validated = EditingArtifact.model_validate(artifact.model_dump())
