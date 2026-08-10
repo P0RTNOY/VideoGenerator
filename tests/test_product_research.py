@@ -1056,6 +1056,134 @@ class ProductImageResearchTests(unittest.TestCase):
         self.assertIsNone(image.height)
 
 
+class HtmlProductGalleryResearchTests(unittest.TestCase):
+    def research_gallery(self, html: str = None):
+        return product_research.research_product_from_html(
+            html or fixture_text("product_gallery.html"),
+            "https://gallery.example/products/orbit-one",
+        )
+
+    def test_product_bound_img_and_lazy_data_src_are_admitted(self) -> None:
+        product = self.research_gallery()
+        image_urls = {image.url for image in product.images}
+
+        self.assertIn("https://cdn.gallery.example/product-bound.jpg", image_urls)
+        self.assertIn("https://cdn.gallery.example/lazy-loaded.jpg", image_urls)
+        primary = next(
+            image
+            for image in product.images
+            if image.url == "https://cdn.gallery.example/product-bound.jpg"
+        )
+        self.assertEqual(primary.source_type, "html_product_gallery_image")
+        self.assertEqual(primary.confidence, 0.70)
+        self.assertEqual((primary.width, primary.height), (1000, 750))
+
+    def test_picture_and_srcset_choose_largest_width_representation(self) -> None:
+        product = self.research_gallery()
+        by_url = {image.url: image for image in product.images}
+
+        self.assertIn("https://cdn.gallery.example/picture-large.webp", by_url)
+        self.assertIn("https://cdn.gallery.example/responsive-large.jpg", by_url)
+        self.assertNotIn("https://cdn.gallery.example/picture-small.webp", by_url)
+        self.assertNotIn("https://cdn.gallery.example/picture-fallback.jpg", by_url)
+        self.assertEqual(
+            by_url["https://cdn.gallery.example/picture-large.webp"].width,
+            1800,
+        )
+
+    def test_malformed_srcset_falls_back_without_guessing(self) -> None:
+        product = self.research_gallery()
+        image_urls = {image.url for image in product.images}
+
+        self.assertIn(
+            "https://cdn.gallery.example/malformed-fallback.jpg",
+            image_urls,
+        )
+        self.assertNotIn("https://cdn.gallery.example/broken-one.jpg", image_urls)
+
+    def test_excluded_and_outside_images_are_rejected(self) -> None:
+        product = self.research_gallery()
+        image_urls = {image.url for image in product.images}
+
+        excluded = {
+            "https://cdn.gallery.example/navigation-logo.png",
+            "https://cdn.gallery.example/promotion.jpg",
+            "https://cdn.gallery.example/payment-badge.png",
+            "https://cdn.gallery.example/sibling-variant.jpg",
+            "https://cdn.gallery.example/outside-product-region.jpg",
+            "https://cdn.gallery.example/customer-upload.jpg",
+            "https://cdn.gallery.example/related-product.jpg",
+            "https://cdn.gallery.example/footer-social.png",
+        }
+        self.assertTrue(excluded.isdisjoint(image_urls))
+
+    def test_gallery_admission_does_not_depend_on_specific_css_class(self) -> None:
+        html = fixture_text("product_gallery.html").replace(
+            'class="visual-stage"',
+            'class="completely-different-layout"',
+        )
+
+        product = self.research_gallery(html)
+
+        self.assertIn(
+            "https://cdn.gallery.example/product-bound.jpg",
+            {image.url for image in product.images},
+        )
+
+    def test_ambiguous_product_h1_disables_html_gallery_only(self) -> None:
+        html = fixture_text("product_gallery.html").replace(
+            "<h1>Example Audio Orbit One</h1>",
+            "<h1>Example Audio Orbit One</h1><h1>Orbit One speaker</h1>",
+        )
+
+        product = self.research_gallery(html)
+        by_type = {image.source_type for image in product.images}
+
+        self.assertNotIn("html_product_gallery_image", by_type)
+        self.assertIn("json_ld_product_image", by_type)
+        self.assertIn("open_graph_product_image", by_type)
+
+    def test_structured_source_wins_duplicate_gallery_url(self) -> None:
+        product = self.research_gallery()
+        matches = [
+            image
+            for image in product.images
+            if image.url == "https://cdn.gallery.example/structured-primary.jpg"
+        ]
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].source_type, "json_ld_product_image")
+        self.assertEqual(matches[0].confidence, 0.95)
+
+    def test_discovery_caps_total_candidates_at_twenty_four_in_source_order(self) -> None:
+        gallery_images = "".join(
+            f'<img src="https://cdn.gallery.example/image-{index}.jpg" alt="View {index}">'
+            for index in range(30)
+        )
+        html = fixture_text("product_gallery.html").replace(
+            '<img\n            src="https://cdn.gallery.example/product-bound.jpg"\n            width="1000"\n            height="750"\n            alt="Orbit One front view">',
+            gallery_images,
+        )
+
+        product = self.research_gallery(html)
+
+        self.assertEqual(len(product.images), 24)
+        html_images = [
+            image
+            for image in product.images
+            if image.source_type == "html_product_gallery_image"
+        ]
+        self.assertEqual(html_images[0].url, "https://cdn.gallery.example/image-0.jpg")
+        self.assertEqual(html_images[-1].url, "https://cdn.gallery.example/image-21.jpg")
+
+    def test_research_has_no_image_download_side_effect(self) -> None:
+        with patch("product_image_downloads.download_product_image") as download:
+            product = self.research_gallery()
+
+        self.assertGreater(len(product.images), 2)
+        download.assert_not_called()
+
+
 class ProductResearchFetchTests(unittest.TestCase):
     def test_fetch_uses_headers_timeout_redirects_and_preserves_final_url(self) -> None:
         research = product_research

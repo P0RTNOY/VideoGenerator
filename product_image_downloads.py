@@ -28,6 +28,7 @@ ACCEPTED_SOURCE_TYPES = frozenset(
     {
         "json_ld_product_image",
         "json_ld_product_image_object",
+        "html_product_gallery_image",
         "open_graph_product_image",
     }
 )

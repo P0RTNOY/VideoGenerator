@@ -207,3 +207,16 @@
 - Design decision: A same-document `@id` index contains only typed ImageObjects with an explicit valid `contentUrl` or `url`; selected-entity references resolve one edge only, use `contentUrl` before `url`, receive confidence 0.90, and never trigger HTTP. Direct selected-entity images retain confidence 0.95 and win URL-level deduplication before explicit dimension completeness.
 - Known limitation: Resolution does not use `thumbnailUrl` alone, follow recursive graph relationships, fetch JSON-LD links, infer image semantics or rights, or inspect arbitrary HTML images.
 - Next selected feature: Constrained same-page HTML primary-product gallery discovery under the approved generic DOM-topology policy.
+
+## Feature 2.20 — Constrained HTML product gallery discovery
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Discover same-page HTML product-gallery image metadata only from a tightly product-bound DOM region near one matched product H1, without crawling or downloading assets during research.
+- Main files: `product_research.py`, `product_image_downloads.py`, their focused test modules, and `tests/fixtures/product_gallery.html`.
+- Tests added: 10 focused product-bound `img`, `picture`, strict `srcset`, lazy `data-src`, malformed fallback, exclusion, CSS independence, ambiguous-H1, 24-candidate cap, source precedence, no-download, and caller-controlled download tests.
+- Total tests: 255 passing.
+- Real-world regression: The current Soundcore page remained at one accepted 800×600 Open Graph image because its HTML did not satisfy the conservative product-detail/gallery topology; product identity, four specs, three features, and all seven ad claim IDs remained unchanged.
+- Design decision: Admission requires a unique matched H1, a close non-global common ancestor, independent product-detail and gallery/media context, and no excluded review/recommendation/promotion/navigation/badge/variant context. Strict width-descriptor `srcset` selects one largest representation; malformed sets fall back to `data-src`/`src`. HTML candidates use confidence 0.70, deduplicate behind structured and Open Graph sources, and the final page set is capped at 24 in deterministic source order.
+- Known limitation: The extractor deliberately misses galleries without recognizable generic topology, ignores JavaScript/framework state and canvas content, does not interpret density descriptors, and neither infers visual suitability nor image rights.
+- Next selected feature: Stop before cross-page or multi-source image research; the remaining high-value recall expansion requires an owner policy for additional page fetching and source reconciliation.

@@ -476,6 +476,26 @@ class ProductImageDownloadTests(unittest.TestCase):
         self.assertEqual(downloaded.source_image_id, "image-source")
         self.assertEqual(len(session.calls), 1)
 
+    def test_html_gallery_source_can_download_when_caller_chooses(self) -> None:
+        session = FakeSession(
+            FakeResponse(
+                encoded_image("PNG"),
+                content_type="image/png",
+                url="https://cdn.example/final.png",
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            downloaded = download_product_image(
+                "speaker",
+                discovered_image(source_type="html_product_gallery_image"),
+                storage_root=temporary_directory,
+                session=session,
+            )
+
+        self.assertEqual(downloaded.source_image_id, "image-source")
+        self.assertEqual(len(session.calls), 1)
+
     def test_missing_source_url_is_rejected(self) -> None:
         source = ProductImage(
             id="image-without-url",

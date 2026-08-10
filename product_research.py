@@ -41,7 +41,10 @@ CONFIDENCE_BY_SOURCE = {
     "json_ld_product_image": 0.95,
     "json_ld_product_image_object": 0.90,
     "open_graph_product_image": 0.80,
+    "html_product_gallery_image": 0.70,
 }
+
+MAX_PRODUCT_IMAGE_CANDIDATES = 24
 
 REQUEST_HEADERS = {
     "User-Agent": (
@@ -1309,6 +1312,54 @@ _EXCLUDED_PRIMARY_CONTEXT_PREFIXES = {
     "warrant",
 }
 
+_EXCLUDED_GALLERY_CONTEXT = _EXCLUDED_PRIMARY_CONTEXT | {
+    "badge",
+    "badges",
+    "customer",
+    "payment",
+    "social",
+    "swatch",
+    "swatches",
+    "trust",
+    "variant",
+    "variants",
+}
+
+_EXCLUDED_GALLERY_CONTEXT_PREFIXES = _EXCLUDED_PRIMARY_CONTEXT_PREFIXES | {
+    "badge",
+    "customer",
+    "payment",
+    "social",
+    "swatch",
+    "trust",
+    "variant",
+}
+
+_GALLERY_CONTEXT_TOKENS = {
+    "carousel",
+    "gallery",
+    "image",
+    "images",
+    "media",
+    "photo",
+    "photos",
+    "slider",
+    "slideshow",
+    "thumbnail",
+    "thumbnails",
+    "visual",
+}
+
+_PRODUCT_DETAIL_CONTEXT_TOKENS = {
+    "commerce",
+    "detail",
+    "details",
+    "hero",
+    "information",
+    "overview",
+    "product",
+}
+
 _IP_RATING_PATTERN = r"\bIP[0-6X][0-9X]\b"
 
 
@@ -1856,6 +1907,168 @@ def _extract_primary_product_claims(
     return specs, features
 
 
+def _nearest_local_common_ancestor(first: Tag, second: Tag) -> Optional[Tag]:
+    first_parents = list(first.parents)
+    second_parents = list(second.parents)
+    for first_distance, ancestor in enumerate(first_parents, start=1):
+        if ancestor not in second_parents:
+            continue
+        if not isinstance(ancestor, Tag) or ancestor.name in {"main", "body", "html"}:
+            return None
+        second_distance = second_parents.index(ancestor) + 1
+        return ancestor if first_distance + second_distance <= 8 else None
+    return None
+
+
+def _context_tokens(tag: Tag, stop_at: Tag) -> Set[str]:
+    tokens: Set[str] = set()
+    current: Optional[Tag] = tag
+    while current is not None:
+        tokens.update(
+            token
+            for identifier in _identifier_values(current)
+            for token in identifier.split("-")
+        )
+        if current is stop_at:
+            break
+        current = current.parent if isinstance(current.parent, Tag) else None
+    return tokens
+
+
+def _has_excluded_gallery_context(tag: Tag, stop_at: Tag) -> bool:
+    current: Optional[Tag] = tag
+    while current is not None and current is not stop_at:
+        if current.name in {"header", "footer", "nav", "aside", "dialog"}:
+            return True
+        tokens = {
+            token
+            for identifier in _identifier_values(current)
+            for token in identifier.split("-")
+        }
+        if tokens & _EXCLUDED_GALLERY_CONTEXT:
+            return True
+        if any(
+            token.startswith(prefix)
+            for token in tokens
+            for prefix in _EXCLUDED_GALLERY_CONTEXT_PREFIXES
+        ):
+            return True
+        current = current.parent if isinstance(current.parent, Tag) else None
+    return False
+
+
+def _is_product_gallery_image(image: Tag, product_h1: Tag, main: Tag) -> bool:
+    if image.find_parent("main") is not main:
+        return False
+    common_ancestor = _nearest_local_common_ancestor(image, product_h1)
+    if common_ancestor is None or _has_excluded_gallery_context(image, main):
+        return False
+    image_context = _context_tokens(image, common_ancestor)
+    product_context = _context_tokens(product_h1, common_ancestor)
+    combined_context = image_context | product_context
+    return bool(
+        image_context & _GALLERY_CONTEXT_TOKENS
+        and combined_context & _PRODUCT_DETAIL_CONTEXT_TOKENS
+        and "product" in combined_context
+    )
+
+
+def _valid_srcset_url(value: str, source_url: str) -> bool:
+    parts = urlsplit(urljoin(source_url, value))
+    return bool(
+        parts.scheme.casefold() in {"http", "https"}
+        and parts.hostname
+        and parts.username is None
+        and parts.password is None
+    )
+
+
+def _largest_srcset_candidate(
+    value: Any,
+    source_url: str,
+) -> Optional[Tuple[str, int]]:
+    text = _clean_text(value)
+    if not text:
+        return None
+    candidates: List[Tuple[str, int]] = []
+    for entry in text.split(","):
+        parts = entry.split()
+        if len(parts) != 2 or not re.fullmatch(r"[1-9]\d*w", parts[1]):
+            return None
+        if not _valid_srcset_url(parts[0], source_url):
+            return None
+        candidates.append((parts[0], int(parts[1][:-1])))
+    return max(candidates, key=lambda candidate: candidate[1], default=None)
+
+
+def _html_gallery_image(
+    image: Tag,
+    source_url: str,
+) -> Optional[ProductImage]:
+    srcsets: List[Tuple[str, int]] = []
+    picture = image.find_parent("picture")
+    if isinstance(picture, Tag):
+        for source in picture.find_all("source"):
+            for attribute in ("srcset", "data-srcset"):
+                candidate = _largest_srcset_candidate(
+                    source.get(attribute),
+                    source_url,
+                )
+                if candidate:
+                    srcsets.append(candidate)
+    for attribute in ("srcset", "data-srcset"):
+        candidate = _largest_srcset_candidate(image.get(attribute), source_url)
+        if candidate:
+            srcsets.append(candidate)
+    if srcsets:
+        image_url, declared_width = max(
+            srcsets,
+            key=lambda candidate: candidate[1],
+        )
+        return build_product_image(
+            image_url,
+            source_url,
+            "html_product_gallery_image",
+            CONFIDENCE_BY_SOURCE["html_product_gallery_image"],
+            width=declared_width,
+        )
+
+    for attribute in ("data-src", "src"):
+        candidate = build_product_image(
+            image.get(attribute),
+            source_url,
+            "html_product_gallery_image",
+            CONFIDENCE_BY_SOURCE["html_product_gallery_image"],
+            width=image.get("width"),
+            height=image.get("height"),
+        )
+        if candidate:
+            return candidate
+    return None
+
+
+def _extract_html_gallery_images(
+    soup: BeautifulSoup,
+    source_url: str,
+    product_name: str,
+    brand: str,
+) -> List[ProductImage]:
+    product_h1 = _find_primary_product_h1(soup, product_name, brand)
+    if product_h1 is None:
+        return []
+    main = product_h1.find_parent("main")
+    if not isinstance(main, Tag):
+        return []
+    images: List[ProductImage] = []
+    for image in main.find_all("img"):
+        if not _is_product_gallery_image(image, product_h1, main):
+            continue
+        candidate = _html_gallery_image(image, source_url)
+        if candidate:
+            images.append(candidate)
+    return images
+
+
 def _deduplicate_features(
     features: Sequence[ProductFeature],
 ) -> List[ProductFeature]:
@@ -2062,8 +2275,14 @@ def research_product_from_html(html: str, source_url: str) -> Product:
                 name,
                 brand,
             ),
+            *_extract_html_gallery_images(
+                soup,
+                source_url,
+                name,
+                brand,
+            ),
         ]
-    )
+    )[:MAX_PRODUCT_IMAGE_CANDIDATES]
 
     canonical_url = _canonical_url(soup, source_url)
     entity_scope = "group" if is_product_group else "product"
