@@ -1,5 +1,6 @@
 # Existing product experiments, generated media, and local secrets
 soundcore/
+/products/
 
 # Python
 __pycache__/
