@@ -360,3 +360,16 @@
 - Design decision: Claim overlays contain only a claim ID that must be both Campaign-selected and assigned to the same shot; factual wording/context remains solely in the Campaign snapshot. Creative and CTA overlays require free-form text, while product-name overlays carry neither text nor claim ID. A default empty overlay list preserves Feature 4.1 JSON compatibility.
 - Known limitation: Overlays have shot-level order only, with no timing, styling, localization, rendering, Product-name resolution, snapshot resolution, legal/marketing approval, or NLP policing of free-form creative copy.
 - Next selected feature: Stop at the mandatory owner-review boundary before any Feature 4.3, asset selection, HeroFrameRequest, AI/prompt/media generation, voice-over, editing, or FFmpeg work.
+
+## Feature 4.3 — Storyboard asset plans
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Persist explicit path-free original-image and reference-sheet selections per Storyboard shot, then revalidate only the selected assets against current Product provenance and verified local bytes at use time.
+- Main files: `storyboard_asset_plan.py` and `tests/test_storyboard_asset_plan.py`.
+- Tests added: 28 focused strict-model, path-free snapshot, deterministic identity, primary/supporting order, duplicate asset/binary, empty/partial plan, binding, unknown asset, current metadata drift, original/sheet integrity, derived provenance, selected-only stale/ambiguous isolation, ranking independence, cross-shot reuse, structural persistence, mutation isolation, generic multi-asset, and documented Soundcore regression tests.
+- Total tests: 439 passing.
+- Soundcore regression: The approved three-shot Campaign/Storyboard validates against documented Product `soundcore-com-group-products-a31x1021`, original `image-a13f7a58e3b50532` at 2000×2000 WEBP with SHA-256 `27f46a38d92121db356cf431d4e6a5f5eedb3e891ba76e81ba675b48f9b67820`, and its one-tile 2048×2048 PNG reference sheet with SHA-256 `7feb5befb9604920f0073181826ebc55d2741bfa6b05c3dca43518018b15450e`.
+- Design decision: Original IDs use `original:<source_image_id>`. Reference-sheet IDs hash a canonical path-free derivation descriptor containing Product identity, canvas/format, ordered source IDs and hashes, and tile geometry while excluding paths, timestamps, byte size, and current sheet SHA. Durable snapshots retain only logical ID/kind and selection-time SHA/dimensions/format. Validation reuses the existing verified Product image-set and reference-sheet integrity boundaries, checks only selected or provenance-required assets, and preserves caller supporting order without introducing ranking or automatic selection.
+- Known limitation: Plans do not select assets automatically, embed paths/URLs/rights, persist resolved runtime files, generate prompts/media, or repair stale selections. A selected reference sheet requires its current derived manifest and every current source original; structural JSON loading deliberately does not touch the filesystem.
+- Next selected feature: Design Feature 4.4, a provider-neutral per-shot `HeroFrameRequest` projection, and stop for owner review before any implementation, provider adapter, prompt generation, or media generation.
