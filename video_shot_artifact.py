@@ -438,3 +438,44 @@ def store_validated_video_shot_artifact(
         created_at=created_at or datetime.now(timezone.utc),
         **metadata,
     )
+
+
+def read_verified_video_shot_bytes(artifact: VideoShotArtifact) -> bytes:
+    """Read and revalidate one exact raw artifact before downstream use."""
+
+    try:
+        validated = VideoShotArtifact.model_validate(artifact.model_dump())
+    except ValidationError as error:
+        raise VideoShotArtifactValidationError(
+            f"Video Shot artifact must be structurally valid: {error}"
+        ) from error
+    path = Path(validated.local_path)
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        raise VideoShotArtifactValidationError(
+            f"Video Shot artifact could not be read: {validated.id}"
+        ) from error
+    if hashlib.sha256(data).hexdigest() != validated.sha256:
+        raise VideoShotArtifactValidationError(
+            f"Video Shot artifact SHA-256 changed: {validated.id}"
+        )
+
+    metadata = _inspect_mp4(data, validated.duration_seconds)
+    expected = {
+        "container": validated.container,
+        "video_codec": validated.video_codec,
+        "width": validated.width,
+        "height": validated.height,
+        "has_audio": validated.has_audio,
+    }
+    for field_name, expected_value in expected.items():
+        if metadata[field_name] != expected_value:
+            raise VideoShotArtifactValidationError(
+                f"Video Shot artifact {field_name} changed: {validated.id}"
+            )
+    if abs(metadata["duration_seconds"] - validated.duration_seconds) > 1e-6:
+        raise VideoShotArtifactValidationError(
+            f"Video Shot artifact duration changed: {validated.id}"
+        )
+    return data
