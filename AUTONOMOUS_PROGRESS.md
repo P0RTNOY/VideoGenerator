@@ -129,3 +129,16 @@
 - Design decision: The result is an ordered list of isolated `DownloadedProductImage` records rather than another persisted model; existing metadata ranking determines source priority, every manifest record is re-verified, and only identical SHA-256 content is collapsed.
 - Known limitation: The set does not impose minimum dimensions, aspect-ratio/transparency policy, aesthetic suitability, transforms, or structured multi-asset failure reporting.
 - Next selected feature: Evaluate objective image eligibility metadata without deciding universal creative thresholds or aesthetic suitability.
+
+## Feature 2.14 — Objective image eligibility evaluation
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Evaluate integrity-verified originals against explicit caller-provided minimum dimensions, pixel count, and decoded-format constraints without embedding creative defaults.
+- Main files: `product_image_eligibility.py`, `tests/test_product_image_eligibility.py`.
+- Tests added: 7 focused strict-requirement, no-default, stable-violation, boundary, serialization, integrity, and mutation-isolation tests.
+- Total tests: 188 passing.
+- Real-world regression: The Soundcore original measured 2000×2000, 4,000,000 pixels, 1.0 aspect ratio, and WebP format; both an empty requirement set and an explicit exact-boundary example passed while the established SHA-256 and ad claim IDs remained unchanged.
+- Design decision: Eligibility requirements default to no constraints, integrity failures remain errors, and results report only measurable facts plus stable violation codes; the engine does not choose universal quality thresholds or aesthetic labels.
+- Known limitation: The evaluator does not inspect transparency or visual content, choose requirements for a use case, aggregate a set, transform assets, or imply advertising/license suitability.
+- Next selected feature: Stop for owner policy before derived reference-sheet generation, which requires choices for canvas/layout, resizing or padding, background, annotations, output format, and whether use-case eligibility thresholds should be standardized.
