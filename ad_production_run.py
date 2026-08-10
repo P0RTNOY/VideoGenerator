@@ -23,6 +23,7 @@ RunReferenceKind = Literal[
     "storyboard",
     "original_asset_manifest",
     "derived_asset_manifest",
+    "editing_audio_manifest",
     "asset_plan",
     "editing_plan",
     "editing_artifact",
@@ -108,6 +109,7 @@ class AdProductionRun(FrozenRunModel):
     storyboard: Optional[RunDocumentReference] = None
     original_asset_manifest: Optional[RunDocumentReference] = None
     derived_asset_manifest: Optional[RunDocumentReference] = None
+    editing_audio_manifest: Optional[RunDocumentReference] = None
     asset_plan: Optional[RunDocumentReference] = None
     shots: Tuple[RunShotReferences, ...] = Field(default_factory=tuple)
     editing_plan: Optional[RunDocumentReference] = None
@@ -144,6 +146,8 @@ class AdProductionRun(FrozenRunModel):
             and self.original_asset_manifest is None
         ):
             raise ValueError("derived asset manifest requires an original manifest")
+        if self.editing_audio_manifest is not None and self.product is None:
+            raise ValueError("editing audio manifest requires a Product reference")
         if self.asset_plan is not None and (
             self.storyboard is None or self.original_asset_manifest is None
         ):
@@ -245,6 +249,7 @@ def set_product_input(
         storyboard=None,
         original_asset_manifest=None,
         derived_asset_manifest=None,
+        editing_audio_manifest=None,
         asset_plan=None,
         shots=(),
         **_editing_clears(),
@@ -285,6 +290,7 @@ def attach_run_reference(
         "storyboard",
         "original_asset_manifest",
         "derived_asset_manifest",
+        "editing_audio_manifest",
         "asset_plan",
         "editing_plan",
         "editing_artifact",
@@ -305,6 +311,7 @@ def attach_run_reference(
             storyboard=None,
             original_asset_manifest=None,
             derived_asset_manifest=None,
+            editing_audio_manifest=None,
             asset_plan=None,
             shots=(),
             **_editing_clears(),
@@ -361,6 +368,18 @@ def attach_run_reference(
             derived_asset_manifest=new_reference,
             asset_plan=None,
             shots=_empty_shots(current),
+            **_editing_clears(),
+        )
+    if kind == "editing_audio_manifest":
+        if current.product is None:
+            raise AdProductionRunContextError(
+                "attach Product before editing audio manifest"
+            )
+        if current.editing_audio_manifest == new_reference:
+            return current.model_copy(deep=True)
+        return _updated(
+            current,
+            editing_audio_manifest=new_reference,
             **_editing_clears(),
         )
     if kind == "asset_plan":

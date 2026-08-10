@@ -590,3 +590,19 @@
 - Safety decision: The save boundary revalidates models created through unchecked copy APIs and separately verifies the expected workspace project ID, preventing a stale or rebound candidate from overwriting another project with a coincident revision.
 - Known limitation: Locking uses POSIX `fcntl` and therefore targets the current macOS/Linux local engine rather than Windows. References prove orchestration lineage only after Feature 5.0C loads and validates their target documents.
 - Next selected feature: Feature 5.0C, deterministic top-level and per-shot status derivation from the current referenced documents and review authority.
+
+## Feature 5.0C — Deterministic production status derivation
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Derive the exact current project and per-shot workflow state from referenced documents, current bytes, and latest review authority without persisting status or creating a terminal failure state.
+- Main files: `ad_production_status.py`, `ad_production_run.py`, and `tests/test_ad_production_status.py`.
+- Tests added: 8 focused grouped tests covering every approved top-level and per-shot state, exact progression through manual and paid boundaries, current Editing/final authority, rejected final review, unreadable references, symlink escape, stale Hero/final media regression, optional editing-audio phase isolation, deterministic read-only behavior, and complete deliverable handoff construction.
+- Total tests: 700 passing.
+- Derivation decision: `resolve_ad_production_status()` loads only workspace-contained referenced JSON, checks reference identity, reuses current Product/Campaign/Storyboard/asset-plan validation, rebuilds Hero and Video request fingerprints, rechecks media bytes, resolves latest exact Hero/Video/Final reviews, recompiles Editing intent, and finally requires a fresh CampaignDeliverableHandoff before returning `complete`.
+- State decision: Missing expected work returns one of the eleven approved top-level or seven approved per-shot states. Unreadable, mismatched, revoked, or stale attached inputs add typed ephemeral issues and regress to the action that can replace them; no `failed` value exists and no status is written to `run.json`.
+- Multi-shot decision: Every Storyboard shot is resolved independently in Storyboard order. One pending or stale shot does not rewrite another shot's status, while global Editing remains gated until all shots are currently `approved_for_editing`.
+- Audio-reference decision: `AdProductionRun` now includes an optional product-scoped editing-audio manifest reference because exact EditingPlan compilation needs current audio authority. Its failure is reported without incorrectly regressing independent Product-image or shot phases, and it blocks Editing only where compilation requires it.
+- Safety decision: Workspace reference resolution rejects final-component symlinks and any resolved path outside the workspace. Status derivation is read-only, deterministic for unchanged local state, structurally revalidates the run, and never invokes research, downloads, providers, rendering, or review writes.
+- Known limitation: Status computation intentionally performs real media and asset verification and may therefore be slower than a metadata-only dashboard. It is a current local truth check, not a cached monitor; filesystem state can still change after resolution and must be rechecked by each execution boundary.
+- Next selected feature: Feature 5.0D, a small argparse CLI that initializes, validates, reports, and attaches local references by mutating only revisioned `run.json`.
