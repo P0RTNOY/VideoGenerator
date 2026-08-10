@@ -606,3 +606,18 @@
 - Safety decision: Workspace reference resolution rejects final-component symlinks and any resolved path outside the workspace. Status derivation is read-only, deterministic for unchanged local state, structurally revalidates the run, and never invokes research, downloads, providers, rendering, or review writes.
 - Known limitation: Status computation intentionally performs real media and asset verification and may therefore be slower than a metadata-only dashboard. It is a current local truth check, not a cached monitor; filesystem state can still change after resolution and must be rechecked by each execution boundary.
 - Next selected feature: Feature 5.0D, a small argparse CLI that initializes, validates, reports, and attaches local references by mutating only revisioned `run.json`.
+
+## Feature 5.0D — Local reference-only orchestration CLI
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Make the local engine operable through one small argparse surface that initializes a project, derives or validates status, changes Product input, and attaches existing durable document references without invoking execution providers.
+- Main files: `ad_production_cli.py` and `tests/test_ad_production_cli.py`.
+- Tests added: 8 focused grouped tests covering revision-zero initialization and collision refusal, Product URL/name input, deterministic read-only status and validation, typed reference attachment and revision increments, Storyboard shot initialization, downstream-only invalidation, malformed/wrong document rejection, absolute/traversal/symlink rejection, stale-reference validation, and the absence of research/download/generation/render commands.
+- Total tests: 708 passing.
+- Command decision: The public commands are `init`, `set-product-input`, `status`, `validate`, ten run-level attachment commands, and five shot-level attachment commands. Attachments load strict typed JSON only to obtain its durable identity and, for Storyboards, ordered shot IDs; they never copy domain objects into `run.json`.
+- Mutation decision: Every mutation loads the current revision, applies the existing pure invalidation helper, and uses the Feature 5.0B optimistic atomic save boundary. Successful commands print human-readable JSON; `validate` exits 1 only for derived reference/authority issues, while invalid arguments, documents, or run persistence exit 2.
+- Path decision: Attachment input is normalized workspace-relative POSIX syntax only. Absolute paths, traversal, URI-like input, final-component symlinks, missing files, and paths resolving outside the workspace fail before any run mutation.
+- Execution boundary: The CLI contains no research, asset download/preparation, Hero generation, Video generation, editing/render, review-writing, provider, network, paid-action, queue, worker, API, UI, database, authentication, or deployment action. It only attaches outputs that another explicit action has already produced.
+- Known limitation: The CLI validates referenced document structure and identity at attachment time but intentionally leaves full cross-document and current-media authority to `status`/`validate`. Cooperative locking remains POSIX-only, and action diagnostics are not yet recorded because execution actions belong to Feature 5.1.
+- Next selected feature: Design only Feature 5.1 Execution Actions. Do not implement execution commands without owner approval.
