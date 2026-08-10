@@ -323,3 +323,15 @@
 - Design decision: `ClaimReviewItem` contains a deep-copied candidate, the unchanged Feature 2.22 status, and counts of unique requested supplementary sources that agree, conflict, or remain ambiguous. `project_claim_review_items` performs exact established claim-ID lookup in candidate order; duplicate observations from one requested source do not inflate its count.
 - Known limitation: The projection does not contain marketing/legal approval, source authority, publisher weighting, claim selection, persistence, UI state, or Product identity beyond the source candidate/report join already established by claim ID.
 - Next selected feature: Stop at the owner-policy boundary. Any further meaningful work would require Campaign/Storyboard design, approval semantics, Product verification mutation, source weighting, persistent freshness/cache policy, or production search/generation infrastructure.
+
+## Feature 4.0 — Ad campaign domain
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Persist durable user intent for a vertical social ad while binding selected product claims to their exact reviewed wording, context, and verification status.
+- Main files: `campaign.py` and `tests/test_campaign.py`.
+- Tests added: 12 focused model, product binding, selection resolution, complete review coverage, claim-status policy, exact ambiguous acknowledgement, snapshot identity/order/drift, duration, format/style/environment/language, persistence, strict-schema, mutation-isolation, and legacy-model compatibility tests.
+- Total tests: 390 passing.
+- Design decision: Campaign snapshots retain only selected user-facing claim ID, display text, optional context text, and selection-time verification status. Supported and corroborated claims are allowed, ambiguous claims require exact explicit acknowledgement, and conflicting claims are rejected. Context validation requires current Product, candidate, and complete review data and returns a deep copy without mutating upstream domain objects.
+- Known limitation: Campaign v1 supports only `vertical_social` at `9:16`, caller-supplied IDs, a conservative BCP-47-shaped language tag, and JSON-file persistence. It contains no product copy, evidence, images, assets, provider settings, prompts, generation state, approval semantics, or timestamps.
+- Next selected feature: Feature 4.1, the approved core Storyboard domain bound to Campaign with ordered shots, selected-claim subsets, and timeline-duration validation.
