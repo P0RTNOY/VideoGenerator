@@ -1,0 +1,13 @@
+[project]
+name = "video-generator-local-engine"
+version = "0.0.0"
+description = "Local, CLI-first product video production engine"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "beautifulsoup4==4.15.0",
+    "google-genai==1.47.0",
+    "Pillow==11.3.0",
+    "pydantic==2.13.4",
+    "requests==2.32.5",
+    "typing-extensions==4.15.0",
+]

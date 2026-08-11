@@ -701,3 +701,16 @@
 - CLI decision: `next-actions` loads the run, derives current status, prints the pure JSON projection, and exits. Repeated calls against unchanged local state are byte-equivalent apart from no timestamps because the model contains none; `run.json` and preview directories remain untouched.
 - Known limitation: Guidance is intentionally a deterministic status projection, not an AI planner. It does not choose Product images, author Campaigns/Storyboards/reviews/motion/editing inputs, estimate cost, select a different provider, or decide whether an operator should proceed.
 - Next selected feature: Design only Feature 5.3, a complete local Soundcore Production Run rehearsal with explicit human and paid boundaries. Do not execute it.
+
+## Feature 5.3A — Reproducible Python 3.12 environment
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Make the existing local engine reproducible in an isolated Python 3.12 environment without changing or deleting the legacy virtual environment.
+- Main files: `pyproject.toml`, `requirements.lock`, `docs/python-3.12-environment.md`, and `.gitignore`.
+- Validation: 752 tests pass under Python 3.12.12; repository-wide bytecode compilation, dependency consistency, CLI help smokes, FFmpeg/ffprobe checks, and `git diff --check` pass.
+- Runtime decision: The project declares Python `>=3.12,<3.13`; `.venv312` is the documented isolated environment and `.venv` remains untouched.
+- Dependency decision: `pyproject.toml` records the six direct dependencies already imported by the engine, while `requirements.lock` freezes their complete resolved transitive set. No test framework or packaging hierarchy was introduced.
+- Tooling decision: FFmpeg and ffprobe remain external local prerequisites rather than Python dependencies; both are documented and verified through their public commands.
+- Workspace decision: `.venv312/` and `/projects/` are ignored so interpreter state and mutable production-run artifacts cannot enter focused source commits.
+- Next selected feature: Feature 5.3B, update the Google Gen AI SDK to the smallest current exact version supporting the required public Interactions, image, Veo, operations, and file-download surfaces.

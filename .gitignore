@@ -6,7 +6,11 @@ soundcore/
 __pycache__/
 *.py[cod]
 .venv/
+.venv312/
 venv/
+
+# Local production-run workspaces
+/projects/
 
 # Local environment files
 .env
