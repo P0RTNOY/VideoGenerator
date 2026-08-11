@@ -668,3 +668,20 @@
 - Test isolation decision: Hero and Video coverage uses injected fake adapters and render coverage uses a deterministic fake renderer around existing local fixtures. Tests need no API key and make no live network or paid-provider request; the lock-release probes reload the run from inside each long-call fake.
 - Known limitation: Cost ceilings remain explicit owner acknowledgements when providers cannot quote, not enforceable billing caps. Concrete provider selection and user-facing command wiring belong to Feature 5.1D; this action layer intentionally requires an already selected adapter.
 - Next selected feature: Feature 5.1D, explicit argparse commands for every production action and preview with local fixture regression coverage.
+
+## Feature 5.1D — Explicit production execution CLI
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Expose every Feature 5.1 action as a separate local argparse command while preserving exact confirmation, confined authored inputs, one-operation dispatch, and no automatic workflow advancement.
+- Main files: `ad_production_cli.py` and `tests/test_ad_production_cli.py`.
+- Tests added: 5 focused grouped tests extending CLI coverage to all execution commands, one-action non-paid/review/editing dispatch, preview JSON and exact-token templates, mandatory confirmation for paid/render actions, confined strict review input, and a real localhost Product-research fixture flow.
+- Total tests: 744 passing.
+- Command decision: The CLI adds `research-product`, `download-assets`, `prepare-reference-assets`, paired Hero/Video preview and generation commands, Hero/Video review recording, EditingPlan construction, render preview/execution, and Final review recording. There is no generic execute/resume/advance command; each invocation calls exactly one action and stops.
+- Confirmation decision: Paid generation and local render parsers require `--confirm-preview action-preview:<sha256>` plus an explicit attempt ID. Preview output is human-readable JSON containing every non-secret binding and an execution template with the exact token; `--yes` and `-y` are unsupported.
+- Provider decision: The current explicit provider/model pairs are validated at the CLI boundary. Concrete Gemini/Veo adapters are imported and constructed lazily only after their matching generation command is selected; previews, status, validation, research, downloads, reviews, and editing-plan construction never initialize them or read credentials.
+- Input decision: Review and EditingPlan authored-input files use the existing normalized workspace-relative path boundary and strict typed JSON parsing. Download IDs are repeatable explicit flags; Product research requires the exact current URL; provider options remain the strict fixed v1 option models.
+- Output decision: CLI output remains JSON and contains no API key, raw prompt, provider response, environment value, or concrete workspace path in command templates. Action-layer errors, including expired, consumed, wrong-project, wrong-revision, or otherwise stale preview tokens, fail with exit code 2 and do not trigger another operation.
+- Local regression decision: A localhost HTTP fixture proves the actual `init` then `research-product` command path persists and attaches one Product and stops at the Campaign boundary. All paid/render dispatch tests use mocks at the action boundary; no live provider or real final render is executed.
+- Known limitation: The CLI currently exposes only the repository's one approved Gemini Hero model and one approved Veo model. Adding another adapter requires an explicit routing change rather than accepting arbitrary provider names; secrets remain environment-only at execution time.
+- Next selected feature: Feature 5.2, a pure deterministic `next-actions` projection over current derived status and durable references.

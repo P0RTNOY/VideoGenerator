@@ -1,11 +1,18 @@
 import io
 import json
+import threading
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from ad_claims import ProductAdClaimSelection
+import ad_production_cli
+from action_confirmation import create_action_preview
 from ad_production_cli import build_parser, main
 from ad_production_run import load_ad_production_run
 from campaign import AdCampaign
@@ -206,7 +213,7 @@ class AdProductionCliTests(unittest.TestCase):
         self.assertEqual(result["status"]["state"], "awaiting_research")
         self.assertNotEqual(result["status"]["state"], "failed")
 
-    def test_cli_exposes_local_reference_commands_and_no_execution_actions(self):
+    def test_cli_exposes_all_explicit_execution_commands_without_generic_execute(self):
         help_text = build_parser().format_help()
         for command in (
             "init",
@@ -220,14 +227,231 @@ class AdProductionCliTests(unittest.TestCase):
             "attach-editing-plan",
         ):
             self.assertIn(command, help_text)
-        for forbidden in (
+        for command in (
             "research-product",
             "download-assets",
+            "prepare-reference-assets",
+            "preview-generate-hero",
             "generate-hero",
+            "record-hero-review",
+            "preview-generate-video",
             "generate-video",
-            "render-ad",
+            "record-video-review",
+            "build-editing-plan",
+            "preview-render",
+            "render-editing-plan",
+            "record-final-review",
         ):
-            self.assertNotIn(forbidden, help_text)
+            self.assertIn(command, help_text)
+        self.assertNotIn("execute-anything", help_text)
+
+    def test_nonpaid_commands_dispatch_exactly_one_action_without_confirmation(self):
+        self.initialize("--product-url", "https://example.test/speaker")
+        input_path = self.documents["product"]
+        cases = (
+            (
+                "execute_research_product",
+                ("research-product", self.project_id, "--product-url", "https://example.test/speaker", "--attempt-id", "a1"),
+            ),
+            (
+                "execute_download_assets",
+                ("download-assets", self.project_id, "--image-id", "image:one", "--attempt-id", "a2"),
+            ),
+            (
+                "execute_prepare_reference_assets",
+                ("prepare-reference-assets", self.project_id, "--attempt-id", "a3"),
+            ),
+            (
+                "execute_record_hero_review",
+                ("record-hero-review", self.project_id, "hero", "--review-file", input_path, "--attempt-id", "a4"),
+            ),
+            (
+                "execute_record_video_review",
+                ("record-video-review", self.project_id, "hero", "--review-file", input_path, "--attempt-id", "a5"),
+            ),
+            (
+                "execute_build_editing_plan",
+                ("build-editing-plan", self.project_id, "--input-file", input_path, "--attempt-id", "a6"),
+            ),
+            (
+                "execute_record_final_review",
+                ("record-final-review", self.project_id, "--review-file", input_path, "--attempt-id", "a7"),
+            ),
+        )
+        for target, arguments in cases:
+            with self.subTest(command=arguments[0]), patch.object(
+                ad_production_cli, target, return_value=self.product
+            ) as action, patch.object(
+                ad_production_cli, "_load_action_input", return_value=self.product
+            ):
+                    code, _, error = self.invoke(*arguments)
+                    self.assertEqual((code, error), (0, ""))
+                    action.assert_called_once()
+
+    def test_preview_commands_print_exact_token_and_execution_template(self):
+        self.initialize("--product-name", "Speaker")
+        now = datetime(2026, 8, 11, 14, 0, tzinfo=timezone.utc)
+        paid = create_action_preview(
+            project_id=self.project_id,
+            run_revision=0,
+            action="generate_hero",
+            request_fingerprint="1" * 64,
+            provider="google-gemini",
+            model="gemini-3.1-flash-image",
+            options_fingerprint="2" * 64,
+            requested_output_count=1,
+            cost_quote_status="unavailable",
+            owner_cost_ceiling_usd=1.0,
+            allow_unquoted_cost=True,
+            created_at=now,
+        )
+        render = create_action_preview(
+            project_id=self.project_id,
+            run_revision=0,
+            action="render_editing_plan",
+            request_fingerprint="3" * 64,
+            options_fingerprint="4" * 64,
+            requested_output_count=1,
+            cost_quote_status="not_applicable",
+            created_at=now,
+        )
+        cases = (
+            (
+                "create_generate_hero_preview",
+                paid,
+                ("preview-generate-hero", self.project_id, "hero", "--provider", "google-gemini", "--model", "gemini-3.1-flash-image", "--cost-quote-status", "unavailable", "--allow-unquoted-cost", "--owner-cost-ceiling-usd", "1"),
+            ),
+            (
+                "create_generate_video_preview",
+                paid.model_copy(update={"action": "generate_video"}),
+                ("preview-generate-video", self.project_id, "hero", "--provider", "google-gemini-api", "--model", "veo-3.1-fast-generate-preview", "--cost-quote-status", "unavailable", "--allow-unquoted-cost", "--owner-cost-ceiling-usd", "1"),
+            ),
+            (
+                "create_render_editing_plan_preview",
+                render,
+                ("preview-render", self.project_id),
+            ),
+        )
+        for target, preview, arguments in cases:
+            with self.subTest(command=arguments[0]), patch.object(
+                ad_production_cli, target, return_value=preview
+            ) as action:
+                code, output, error = self.invoke(*arguments)
+                self.assertEqual((code, error), (0, ""))
+                payload = json.loads(output)
+                self.assertEqual(payload["preview"]["id"], preview.id)
+                self.assertIn(preview.id, payload["execution_command"])
+                action.assert_called_once()
+
+    def test_paid_and_render_commands_require_exact_confirmation_and_call_one_action(self):
+        self.initialize("--product-name", "Speaker")
+        token = "action-preview:" + "a" * 64
+        cases = (
+            (
+                "execute_generate_hero",
+                ("generate-hero", self.project_id, "hero", "--provider", "google-gemini", "--model", "gemini-3.1-flash-image"),
+            ),
+            (
+                "execute_generate_video",
+                ("generate-video", self.project_id, "hero", "--provider", "google-gemini-api", "--model", "veo-3.1-fast-generate-preview"),
+            ),
+            (
+                "execute_render_editing_plan",
+                ("render-editing-plan", self.project_id),
+            ),
+        )
+        for target, prefix in cases:
+            with self.subTest(command=prefix[0]):
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    build_parser().parse_args([*prefix, "--attempt-id", "attempt"])
+                with patch.object(
+                    ad_production_cli, target, return_value=self.product
+                ) as action, patch.object(
+                    ad_production_cli, "_hero_generator", return_value=object()
+                ), patch.object(
+                    ad_production_cli, "_video_generator", return_value=object()
+                ):
+                    code, _, error = self.invoke(
+                        *prefix,
+                        "--confirm-preview",
+                        token,
+                        "--attempt-id",
+                        "attempt",
+                    )
+                    self.assertEqual((code, error), (0, ""))
+                    action.assert_called_once()
+
+    def test_review_file_is_strict_and_workspace_confined(self):
+        self.initialize("--product-name", "Speaker")
+        malformed = self.workspace / "documents" / "bad-review.json"
+        malformed.write_text("{}", encoding="utf-8")
+        for supplied in ("documents/bad-review.json", str(malformed)):
+            code, _, error = self.invoke(
+                "record-hero-review",
+                self.project_id,
+                "hero",
+                "--review-file",
+                supplied,
+                "--attempt-id",
+                "review-one",
+            )
+            self.assertEqual(code, 2)
+            self.assertTrue(error)
+
+    def _hero_review(self):
+        from hero_frame_review import HeroFrameFidelityChecklist, HeroFrameReview
+
+        return HeroFrameReview(
+            review_id="review:hero",
+            review_context_id="hero-frame-review-context:" + "a" * 64,
+            reviewer_actor_id="owner:test",
+            decision="approved_for_video_start_image",
+            reviewed_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+            checklist=HeroFrameFidelityChecklist(
+                geometry_and_proportions="pass",
+                color_variant_and_materials="pass",
+                controls_buttons_and_ports="pass",
+                seams_and_panel_boundaries="pass",
+                logos_markings_and_labels="pass",
+                no_invented_or_missing_construction="pass",
+                no_added_advertising_text="pass",
+                scene_and_framing_usable="pass",
+            ),
+        )
+
+    def test_local_fixture_smoke_researches_and_stops_at_campaign_boundary(self):
+        fixture_root = Path(__file__).parent / "fixtures"
+
+        class QuietHandler(SimpleHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            partial(QuietHandler, directory=str(fixture_root)),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_port}/jsonld_product.html"
+            self.initialize("--product-url", url)
+            code, output, error = self.invoke(
+                "research-product",
+                self.project_id,
+                "--product-url",
+                url,
+                "--attempt-id",
+                "local-fixture-research",
+            )
+            self.assertEqual((code, error), (0, ""))
+            self.assertEqual(json.loads(output)["receipt"]["status"], "succeeded_and_attached")
+            run = load_ad_production_run(self.workspace, self.project_id)
+            self.assertIsNotNone(run.product)
+            self.assertIsNone(run.campaign)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
 if __name__ == "__main__":
