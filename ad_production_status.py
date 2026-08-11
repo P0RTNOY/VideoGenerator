@@ -1,5 +1,7 @@
 """Deterministic, read-only workflow status derivation for local production runs."""
 
+import hashlib
+
 from pathlib import Path
 from typing import List, Literal, Optional, Sequence, Tuple, Type, TypeVar, Union
 
@@ -154,6 +156,17 @@ def _reference_path(workspace_root: Path, reference: RunDocumentReference) -> Pa
         ) from error
     if not resolved.is_file():
         raise AdProductionStatusError(f"workspace reference is not a file: {reference.path}")
+    if reference.content_sha256 is not None:
+        try:
+            current_hash = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        except OSError as error:
+            raise AdProductionStatusError(
+                f"workspace reference could not be hashed: {reference.path}"
+            ) from error
+        if current_hash != reference.content_sha256:
+            raise AdProductionStatusError(
+                f"workspace reference content changed: {reference.path}"
+            )
     return resolved
 
 

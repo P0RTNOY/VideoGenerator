@@ -58,6 +58,7 @@ class RunProductInput(FrozenRunModel):
 class RunDocumentReference(FrozenRunModel):
     id: NonEmptyStr
     path: NonEmptyStr
+    content_sha256: Optional[NonEmptyStr] = None
 
     @field_validator("path")
     @classmethod
@@ -70,6 +71,13 @@ class RunDocumentReference(FrozenRunModel):
         candidate = PurePosixPath(value)
         if candidate.is_absolute() or str(candidate) != value:
             raise ValueError("document path must be normalized and relative")
+        return value
+
+    @field_validator("content_sha256")
+    @classmethod
+    def require_content_sha256(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError("content_sha256 must be a lowercase SHA-256 digest")
         return value
 
 

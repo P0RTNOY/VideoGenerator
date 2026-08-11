@@ -197,6 +197,31 @@ class ActionPreviewClaim(FrozenActionModel):
         return _utc(value, "claimed_at")
 
 
+class ActionAttemptClaim(FrozenActionModel):
+    schema_version: Literal[1] = 1
+    project_id: NonEmptyStr
+    action: ActionName
+    attempt_id: NonEmptyStr
+    claimed_at: datetime
+
+    @field_validator("project_id")
+    @classmethod
+    def validate_project_id(cls, value: str) -> str:
+        return _require_project_id(value)
+
+    @field_validator("attempt_id")
+    @classmethod
+    def validate_attempt_id(cls, value: str) -> str:
+        if len(value) > 120 or not ATTEMPT_ID_PATTERN.fullmatch(value):
+            raise ValueError("attempt_id must be a filesystem-safe identifier")
+        return value
+
+    @field_validator("claimed_at")
+    @classmethod
+    def validate_claimed_at(cls, value: datetime) -> datetime:
+        return _utc(value, "claimed_at")
+
+
 class ActionFailureDiagnostic(FrozenActionModel):
     code: NonEmptyStr
     message: SanitizedMessage
@@ -477,6 +502,32 @@ def claim_action_preview(
     project = _project_directory(workspace_root, project_id)
     _exclusive_json(
         project / "action-preview-claims" / f"{_preview_hash(preview.id)}.json",
+        claim,
+        project,
+    )
+    return claim
+
+
+def claim_action_attempt(
+    workspace_root: Union[str, Path],
+    *,
+    project_id: str,
+    action: ActionName,
+    attempt_id: str,
+    claimed_at: datetime,
+) -> ActionAttemptClaim:
+    try:
+        claim = ActionAttemptClaim(
+            project_id=project_id,
+            action=action,
+            attempt_id=attempt_id,
+            claimed_at=claimed_at,
+        )
+    except ValidationError as error:
+        raise ActionConfirmationError(f"action attempt claim is invalid: {error}") from error
+    project = _project_directory(workspace_root, project_id)
+    _exclusive_json(
+        project / "attempt-claims" / action / f"{attempt_id}.json",
         claim,
         project,
     )

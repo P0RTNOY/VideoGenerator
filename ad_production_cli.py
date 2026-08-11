@@ -2,6 +2,7 @@
 """Argparse interface for local, reference-only Ad Production Run orchestration."""
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path, PurePosixPath
@@ -217,13 +218,21 @@ def _load_reference(
 ) -> Tuple[RunDocumentReference, BaseModel]:
     document_path = _workspace_document_path(workspace, relative_path)
     try:
-        document = model_type.model_validate_json(document_path.read_text(encoding="utf-8"))
+        document_bytes = document_path.read_bytes()
+        document = model_type.model_validate_json(document_bytes)
     except (OSError, UnicodeError, ValidationError) as error:
         raise ValueError(
             f"document is not valid {model_type.__name__} JSON: {relative_path}"
         ) from error
     identity = identity_reader(document)
-    return RunDocumentReference(id=identity, path=relative_path), document
+    return (
+        RunDocumentReference(
+            id=identity,
+            path=relative_path,
+            content_sha256=hashlib.sha256(document_bytes).hexdigest(),
+        ),
+        document,
+    )
 
 
 def _print_model(model: BaseModel) -> None:
