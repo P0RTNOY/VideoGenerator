@@ -42,6 +42,7 @@ from final_ad_review import FinalAdReview, FinalAdReviewHistory
 from hero_frame_artifact import HeroFrameArtifact
 from hero_frame_generation import HeroFrameGenerationOptions
 from hero_frame_review import HeroFrameReview, HeroFrameReviewHistory
+from next_actions import NextActionsError, derive_next_actions
 from product import Product
 from product_asset_manifest import ProductAssetManifest
 from product_derived_asset_manifest import ProductDerivedAssetManifest
@@ -200,6 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     for command, help_text in (
         ("status", "derive current workflow and per-shot states"),
         ("validate", "validate run references and current domain authority"),
+        ("next-actions", "list meaningful explicit operator actions without executing"),
     ):
         command_parser = commands.add_parser(command, help=help_text)
         _add_project_argument(command_parser)
@@ -474,6 +476,10 @@ def _execute(arguments: argparse.Namespace) -> int:
             )
         )
         return 0 if not status.issues else 1
+    if arguments.command == "next-actions":
+        status = resolve_ad_production_status(run, workspace)
+        _print_model(derive_next_actions(run, status))
+        return 0
     if arguments.command == "set-product-input":
         candidate = set_product_input(run, _product_input(arguments))
         _print_model(_save_mutation(run, candidate, workspace))
@@ -705,6 +711,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         AdProductionStatusError,
         ConfirmedProductionActionError,
         ProductionActionError,
+        NextActionsError,
         OSError,
         UnicodeError,
         ValidationError,

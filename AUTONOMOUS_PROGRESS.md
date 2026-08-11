@@ -685,3 +685,19 @@
 - Local regression decision: A localhost HTTP fixture proves the actual `init` then `research-product` command path persists and attaches one Product and stops at the Campaign boundary. All paid/render dispatch tests use mocks at the action boundary; no live provider or real final render is executed.
 - Known limitation: The CLI currently exposes only the repository's one approved Gemini Hero model and one approved Veo model. Adding another adapter requires an explicit routing change rather than accepting arbitrary provider names; secrets remain environment-only at execution time.
 - Next selected feature: Feature 5.2, a pure deterministic `next-actions` projection over current derived status and durable references.
+
+## Feature 5.2 — Pure guided next actions
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Turn the current derived production status into a small deterministic list of explicit operator commands, blockers, and execution-boundary labels without performing or preparing any action.
+- Main files: `next_actions.py`, `ad_production_cli.py`, and `tests/test_next_actions.py`.
+- Tests added: 8 focused grouped tests covering all eleven top-level states, all seven per-shot states, Product URL versus manual Product input, ordered multi-shot guidance, paid/render confirmation labels, redundant derived-asset preparation suppression, stale-reference blockers, complete-state inspection only, deterministic output, and CLI read-only/no-preview behavior.
+- Total tests: 752 passing.
+- Purity decision: `derive_next_actions()` accepts only an already loaded run and its exact same-revision derived status, structurally revalidates both, returns frozen strict value objects, and performs no filesystem, preview, provider, network, render, artifact, review, or run mutation.
+- Guidance decision: Missing domain documents map to existing attach/build/research commands; incomplete shots map in Storyboard order to the exact manual or preview boundary; paid Hero/Video and local render suggestions name only their preview commands while explicitly labeling the target execution as confirmation-required.
+- Blocker decision: Current status issues are preserved as ordered scope-qualified blocker text. A manual Product name does not offer unsupported URL research, explicit image download calls out its required IDs, stale artifacts regress only to their safe replacement preview/review boundary, and already attached derived assets suppress redundant reference preparation.
+- Completion decision: A complete run offers only read-only `status` inspection. Guidance never creates a preview automatically, claims a token, attaches a reference, executes a provider, renders media, or implies that the next listed command has already been approved.
+- CLI decision: `next-actions` loads the run, derives current status, prints the pure JSON projection, and exits. Repeated calls against unchanged local state are byte-equivalent apart from no timestamps because the model contains none; `run.json` and preview directories remain untouched.
+- Known limitation: Guidance is intentionally a deterministic status projection, not an AI planner. It does not choose Product images, author Campaigns/Storyboards/reviews/motion/editing inputs, estimate cost, select a different provider, or decide whether an operator should proceed.
+- Next selected feature: Design only Feature 5.3, a complete local Soundcore Production Run rehearsal with explicit human and paid boundaries. Do not execute it.
