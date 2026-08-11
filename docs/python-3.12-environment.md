@@ -41,3 +41,14 @@ On macOS with Homebrew, install them only when either command is unavailable:
 ```sh
 brew install ffmpeg
 ```
+
+## Google Gen AI SDK compatibility floor
+
+The engine pins `google-genai==1.55.0`. This is the smallest stable release
+whose official changelog includes the public Interactions API required by the
+Hero adapter. The existing Veo adapter also requires the public
+`models.generate_videos`, `operations.get`, and `files.download` methods.
+
+`tests/test_google_genai_sdk_contract.py` checks these public service and method
+signatures using anonymous offline credentials. It reads no API key and makes
+no network request. Provider behavior remains covered by injected fakes.

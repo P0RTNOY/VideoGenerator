@@ -714,3 +714,16 @@
 - Tooling decision: FFmpeg and ffprobe remain external local prerequisites rather than Python dependencies; both are documented and verified through their public commands.
 - Workspace decision: `.venv312/` and `/projects/` are ignored so interpreter state and mutable production-run artifacts cannot enter focused source commits.
 - Next selected feature: Feature 5.3B, update the Google Gen AI SDK to the smallest current exact version supporting the required public Interactions, image, Veo, operations, and file-download surfaces.
+
+## Feature 5.3B — Google Gen AI SDK compatibility floor
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Pin the smallest current stable Google Gen AI SDK release that supports every public surface used by the Hero and Veo adapters on Python 3.12.
+- Main files: `pyproject.toml`, `requirements.lock`, `docs/python-3.12-environment.md`, and `tests/test_google_genai_sdk_contract.py`.
+- Tests added: 4 offline contract tests; 756 total tests pass under Python 3.12.12, including the existing Hero and Veo adapter suites.
+- Version decision: Official Google release notes first add the Interactions API in `google-genai==1.55.0`; that exact release also exposes `models.generate_videos`, `operations.get`, and `files.download`, so no newer unrelated release is required.
+- Contract decision: Four offline tests inspect only public `Client` services and callable signatures using anonymous credentials. They require no API key and make no provider or network request.
+- Compatibility decision: The existing Hero and Veo adapters already match the 1.55.0 public contracts; no adapter rewrite or private SDK import was needed.
+- Lock decision: The exact SDK update adds only its resolved `distro` and `sniffio` transitive dependencies to the Python 3.12 lock.
+- Next selected feature: Feature 5.3C, prepare the controlled Soundcore project as a real CLI/action consumer without invoking paid generation or creating manual reviews.
