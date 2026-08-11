@@ -621,3 +621,18 @@
 - Execution boundary: The CLI contains no research, asset download/preparation, Hero generation, Video generation, editing/render, review-writing, provider, network, paid-action, queue, worker, API, UI, database, authentication, or deployment action. It only attaches outputs that another explicit action has already produced.
 - Known limitation: The CLI validates referenced document structure and identity at attachment time but intentionally leaves full cross-document and current-media authority to `status`/`validate`. Cooperative locking remains POSIX-only, and action diagnostics are not yet recorded because execution actions belong to Feature 5.1.
 - Next selected feature: Design only Feature 5.1 Execution Actions. Do not implement execution commands without owner approval.
+
+## Feature 5.1A — Explicit execution confirmations and attempt receipts
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Bind every paid generation or local render attempt to one exact, expiring, content-addressed owner confirmation and retain a small append-only sanitized orchestration receipt for each invocation.
+- Main files: `action_confirmation.py` and `tests/test_action_confirmation.py`.
+- Tests added: 13 focused grouped tests covering deterministic content identity, strict path-free JSON, exact project/revision/action/request/provider/model/options/output binding, 30-minute expiration, exact-token enforcement, atomic one-time and concurrent claims, failed-attempt consumption, quoted/unavailable/no-cost policy, immutable sanitized receipts, append-only paths, atomic publication failure, unknown-field rejection, input isolation, and nested symlink escape prevention.
+- Total tests: 721 passing.
+- Preview decision: `ActionPreview` stores only exact non-secret execution bindings and cost acknowledgement, expires exactly 30 minutes after creation, and uses the full `action-preview:<sha256>` logical ID as its confirmation token. A changed run revision or any request/action/provider/model/options/output binding requires a new preview.
+- Cost decision: Paid previews accept an actual quote only at or below a positive owner ceiling. An unavailable quote requires both explicit `allow_unquoted_cost=true` and a positive owner ceiling while preserving `unavailable`; no cost is inferred and the ceiling is not represented as a billing guarantee. Local render uses `not_applicable` and forbids cost fields.
+- Consumption decision: Claiming loads the project-scoped durable preview and atomically creates an exclusive filesystem claim before execution. The marker is never released, including after provider failure, invalid output, moderation, or attachment conflict; concurrent duplicate claims fail closed.
+- Receipt decision: Each terminal `ActionAttemptReceipt` is written once beneath `projects/<project-id>/attempts/<action>/<attempt-id>.json`, records only compact bindings, relative references, quote status, sanitized failure, and attachment outcome, and refuses overwrite. Domain/provider receipts remain separate referenced documents.
+- Safety decision: Preview, claim, and receipt storage walks and validates every project-relative directory component, rejecting symlink escape before creating or writing outside the project. Models reject unknown fields and expose no API-key, environment, prompt, raw-response, stderr, absolute-path, or media-byte fields.
+- Next selected feature: Feature 5.1B, bounded non-paid local actions that reuse existing domain and persistence boundaries one operation at a time.
