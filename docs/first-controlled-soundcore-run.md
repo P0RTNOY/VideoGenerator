@@ -150,3 +150,34 @@ current exact final approval and all transitive Hero/Video review authority.
 
 No cleanup is automatic. Preserve successful, rejected, failed, and unattached
 artifacts; attempt receipts; review histories; and durable domain documents.
+
+## Non-paid readiness audit
+
+The revision-7 project was reloaded through the status resolver and every
+currently attached JSON reference was content-checked. The original WebP,
+reference-sheet PNG, and editing-music MP3 were reread, decoded, and verified
+against their stored sizes, hashes, dimensions, formats, and Product binding.
+No Hero artifact, Hero review, Video intent reference, Video artifact, Video
+review, EditingPlan, edited artifact, Final review, or paid ActionPreview exists
+in the real run.
+
+All three prepared Video intent documents were separately revalidated against
+the current Product, Campaign, Storyboard, and AssetPlan. Each retains an
+eight-second requested generation duration and no motion-relevant claim IDs.
+
+Every in-memory Hero request passed current-asset reads, instruction
+compilation, and the Gemini adapter capability preflight with two mandatory
+references against capacity ten and fixed 9:16 / 1K / PNG output:
+
+| Shot | Hero request fingerprint |
+| --- | --- |
+| `hook` | `33b7eb013e2b463140fc7413f68bab43e36b67b7cc75664a1e8b2f5a297299b3` |
+| `water-feature` | `42dbef6946c6fada2ba47b013c163b48ca259926b0f8a8d7e1f08f9e64ceed2c` |
+| `poolside-lifestyle` | `2c724e0e6fda4f16597bfef95afdc6fd8190c595b4a54a485a00379cfe30f171` |
+
+A separate temporary three-shot fixture project exercised ActionPreview
+creation and exact one-time confirmation, fake Hero generation, Hero review,
+fake Video generation, Video review with usable ranges, EditingPlan creation,
+a real local FFmpeg render, Final review, and verified deliverable handoff. It
+reached derived `complete` status, made zero live provider calls, and its
+temporary workspace was removed after validation.

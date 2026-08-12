@@ -741,3 +741,16 @@
 - Lifecycle decision: Exact eight-second Video intent documents with empty motion-claim lists are prepared for all shots but remain unattached. The reviewed run policy requires Hero approval before intent attachment and invalidates an intent when a replacement Hero is attached; no review was fabricated and no run JSON was hand-edited.
 - Prepared state: Run revision 7 is valid with no issues; all shots are `awaiting_hero_generation`, and deterministic guidance offers only `preview-generate-hero` for each shot. No ActionPreview or paid/provider call was created.
 - Next selected feature: Feature 5.3D, audit every current reference and in-memory Hero request, then run the complete fake end-to-end regression in a separate temporary workspace.
+
+## Feature 5.3D — Non-paid first-run readiness audit
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Prove that the real Soundcore project is internally current at its pre-Hero boundary and that the complete orchestration flow still works without live providers.
+- Real-project audit: Revision 7 reloads as `shots_in_progress` with all three shots `awaiting_hero_generation`, no issues, and one `preview-generate-hero` action per shot. Every attached document hash and all original, derived, and editing-audio bytes revalidated.
+- Absence decision: The real run contains no paid preview, Hero/Video artifact, premature review, EditingPlan, edited artifact, or Final review. Its three exact Video intent documents validate independently but remain unattached until their corresponding Hero approvals.
+- Hero readiness: All three in-memory requests rebuild successfully, re-read both mandatory assets, fit within the Gemini capacity of ten references, pass fixed 9:16 / 1K / PNG preflight, and produce stable request fingerprints without constructing a provider client or making a call.
+- Fake regression: A disposable three-shot project completed exact preview confirmation, fake Hero generation/review, fake Video generation/review, authored EditingPlan, real FFmpeg rendering, Final review, verified deliverable handoff, and derived `complete` status. The 67,512-byte deliverable reverified and the temporary workspace was removed.
+- Validation: 756 tests pass under Python 3.12.12; the 42 provider/SDK contract tests, repository-wide bytecode compilation, dependency consistency, real-project status/validate/next-actions checks, FFmpeg/ffprobe 8.1.2 checks, and `git diff --check` pass.
+- Safety result: No live provider call, API-key read, real paid ActionPreview, credit spend, retry, push, PR, cleanup of retained project data, or mutation of the stale evaluation artifact occurred.
+- Next selected feature: None. Stop before creating a real paid ActionPreview or making a paid provider call; the owner resumes from the exact runbook commands.
