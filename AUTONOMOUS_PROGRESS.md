@@ -727,3 +727,17 @@
 - Compatibility decision: The existing Hero and Veo adapters already match the 1.55.0 public contracts; no adapter rewrite or private SDK import was needed.
 - Lock decision: The exact SDK update adds only its resolved `distro` and `sniffio` transitive dependencies to the Python 3.12 lock.
 - Next selected feature: Feature 5.3C, prepare the controlled Soundcore project as a real CLI/action consumer without invoking paid generation or creating manual reviews.
+
+## Feature 5.3C — First controlled Soundcore project preparation
+
+- Branch: `feature/primary-product-claims`
+- Commit: this commit
+- Goal: Prepare the real ignored Soundcore project through every authorized non-paid boundary and leave its next operator actions at paid Hero preview creation.
+- Main file: `docs/first-controlled-soundcore-run.md`; all Product, run, media, manifest, Campaign, Storyboard, AssetPlan, audio, and intent documents remain operational data under ignored workspace conventions.
+- Research decision: Fresh research of the exact official page produced Product `soundcore-com-group-products-a31x1021`, seven primary-only `supported` claims, and exactly one accepted Product image. The stale untracked evaluation JSON was neither read nor attached.
+- Asset decision: Explicit image `image-a13f7a58e3b50532` was downloaded as a verified 2000×2000 WebP with SHA-256 `27f46a38d92121db356cf431d4e6a5f5eedb3e891ba76e81ba675b48f9b67820`; its one-image reference sheet is a verified 2048×2048 PNG with SHA-256 `7feb5befb9604920f0073181826ebc55d2741bfa6b05c3dca43518018b15450e`.
+- Domain decision: Campaign `soundcore-select-4-go-summer`, Storyboard `soundcore-select-4-go-summer-board`, and the complete three-shot asset plan use the exact approved claim text, timing, overlays, environment, one original primary, and one supporting reference sheet.
+- Audio decision: The existing local `music.mp3` passed current ingestion as a 10,000 ms stereo MP3 and was attached through a content-addressed product-scoped manifest; no rights are inferred and no SFX are selected.
+- Lifecycle decision: Exact eight-second Video intent documents with empty motion-claim lists are prepared for all shots but remain unattached. The reviewed run policy requires Hero approval before intent attachment and invalidates an intent when a replacement Hero is attached; no review was fabricated and no run JSON was hand-edited.
+- Prepared state: Run revision 7 is valid with no issues; all shots are `awaiting_hero_generation`, and deterministic guidance offers only `preview-generate-hero` for each shot. No ActionPreview or paid/provider call was created.
+- Next selected feature: Feature 5.3D, audit every current reference and in-memory Hero request, then run the complete fake end-to-end regression in a separate temporary workspace.
